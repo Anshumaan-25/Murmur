@@ -1,0 +1,87 @@
+{
+  "core_checks": 89,
+  "golden_cases": 40,
+  "fresh_checkout": {
+    "make_test": "passed",
+    "make_app": "passed",
+    "make_run": "passed"
+  },
+  "idle_sample": [
+    {
+      "pid": 17203,
+      "cpu_percent": 0.0,
+      "rss_kib": 102832,
+      "state": "S"
+    }
+  ],
+  "offline_first_run": {
+    "network_denied": true,
+    "exit_code": 0,
+    "seconds": 4.850715083000001,
+    "recognized_nonempty": true,
+    "working_directory_outside_project": true
+  },
+  "offline_warm_runs": [
+    {
+      "seconds": 0.458677084,
+      "exit_code": 0,
+      "recognized_nonempty": true
+    },
+    {
+      "seconds": 0.43619716700000005,
+      "exit_code": 0,
+      "recognized_nonempty": true
+    },
+    {
+      "seconds": 0.444887083,
+      "exit_code": 0,
+      "recognized_nonempty": true
+    }
+  ],
+  "bundled_decoder_comparison": [
+    {
+      "configuration": "bundle",
+      "attempt": 0,
+      "seconds": 0.507138875,
+      "exit": 0,
+      "has_text": true
+    },
+    {
+      "configuration": "bundle",
+      "attempt": 1,
+      "seconds": 0.44841420900000006,
+      "exit": 0,
+      "has_text": true
+    },
+    {
+      "configuration": "development",
+      "attempt": 0,
+      "seconds": 0.5027789579999999,
+      "exit": 0,
+      "has_text": true
+    },
+    {
+      "configuration": "development",
+      "attempt": 1,
+      "seconds": 0.44926554099999993,
+      "exit": 0,
+      "has_text": true
+    }
+  ],
+  "selected_text_model_example": {
+    "seconds": 5.16343092918396,
+    "text": "I am writing to inform you that the meeting on tomorrow has been moved to Friday at 4."
+  },
+  "cleanroom_checker_self_test": {
+    "detects_overlap": true,
+    "detects_bare_hostname": true,
+    "does_not_print_matching_content": true,
+    "clean_fixture_passes": true
+  },
+  "permissions": {
+    "microphone": false,
+    "accessibility": false,
+    "input_monitoring": false
+  },
+  "textedit_integration": "skipped: Accessibility permission absent"
+}
