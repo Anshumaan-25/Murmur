@@ -1,0 +1,14 @@
+# Manual acceptance checks
+
+These checks require the signed app's operating-system grants. No permission status is inferred from a unit check.
+
+1. Launch the built app, enable microphone access, enable Accessibility, and refresh the status. Rebuild at the same location and confirm the grants remain associated with its stable signing identity.
+2. Open TextEdit, click a new document, and use Control Option Space. Speak, then press the shortcut again. Confirm insertion at the original caret and undo with Command Z.
+3. Repeat in Notes, a Safari textarea, a Chrome textarea, Slack, and a code editor. These applications may expose different Accessibility attributes; record copied fallbacks separately from successful insertion.
+4. Put multiple items and custom rich clipboard types on the pasteboard. Dictate and verify byte-identical contents return. During the restore interval, copy new content in another app; verify Murmur leaves the new clipboard owner alone.
+5. Change app, field, cursor position, or selection while recognition runs. Verify the result is copied rather than inserted into the changed target. A protected/password field must receive nothing.
+6. Cancel during capture and decoding. Start another session immediately. Confirm old work cannot insert text, close the newer indicator, or overwrite the new status.
+7. Grant Input Monitoring, enable the globe/function hold shortcut, and set the system globe action to Do Nothing in Keyboard settings. Confirm key release finishes capture and ordinary typing still works.
+8. Exercise the indicator on a different Space and over a fullscreen app. It must not become the focused window. Drag it and relaunch to check saved docking.
+9. Disable Wi-Fi after model setup. Dictate several utterances and use every local editing feature. Confirm no additional assets are requested.
+10. Test launch-at-login registration from a stable app location. Check settings links reach the intended privacy category; macOS can route deep links to the general privacy page.

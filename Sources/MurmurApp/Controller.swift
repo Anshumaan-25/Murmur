@@ -6,6 +6,8 @@ import MurmurCore
     var sessions = SessionGate()
     let microphone = Microphone()
     let hotkeys = Hotkeys()
+    let inserter = ClipboardInserter()
+    var destination: Destination?
     var status: ((String) -> Void)?
     var received: ((String) -> Void)?
     var activeTask: Task<Void, Never>?
@@ -24,7 +26,9 @@ import MurmurCore
     }
     func toggle() { if sessions.phase == .listening { finish() } else { start() } }
     func start() {
+        guard sessions.phase != .inserting else { return }
         activeTask?.cancel(); sessions.cancel()
+        destination = Destination.capture()
         let identity = sessions.begin(); began = Date(); status?("Listening…"); hotkeys.escape(true)
         do { try microphone.start() } catch { _ = sessions.transition(.failed, session: identity); status?(error.localizedDescription); hotkeys.escape(false) }
     }
@@ -39,10 +43,15 @@ import MurmurCore
                 let result = try await selected.transcribe(frames, language: "en-US", vocabulary: [])
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }
                 _ = sessions.transition(.inserting, session: identity)
-                lastText = result.text; received?(result.text); _ = sessions.transition(.idle, session: identity)
-                status?(String(format: "Recognized in %.2f seconds", result.seconds)); hotkeys.escape(false)
+                lastText = result.text; received?(result.text)
+                if let destination {
+                    let outcome = try await inserter.insert(result.text, destination: destination)
+                    guard sessions.accepts(identity) else { return }
+                    status?(outcome == .inserted ? "Inserted" : "Copied — destination changed or insertion permission is missing")
+                }
+                _ = sessions.transition(.idle, session: identity); hotkeys.escape(false)
             } catch { guard sessions.accepts(identity) else { return }; _ = sessions.transition(.failed, session: identity); status?(error.localizedDescription); hotkeys.escape(false) }
         }
     }
-    func cancel() { activeTask?.cancel(); microphone.cancel(); sessions.cancel(); hotkeys.escape(false); status?("Cancelled") }
+    func cancel() { activeTask?.cancel(); microphone.cancel(); inserter.finishRestoration(); sessions.cancel(); hotkeys.escape(false); status?("Cancelled") }
 }

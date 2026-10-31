@@ -11,3 +11,7 @@ Menu-bar application, permission controls, startup registration, app bundler, is
 ## M2 — Capture and recognition
 
 Native raw microphone capture, conversion, bounded sample batches, silence trimming, registered toggle shortcut, local speech provider interfaces, and a transcript preview are implemented. Decoder input uses an anonymous pipe. Synthetic speech benchmarks run without microphone permission. System speech is retained as an interchangeable adapter but asset readiness is not assumed from installed locale listings. Physical microphone testing remains gated by the user's OS grant.
+
+## M3 — Destination and clipboard
+
+Per-session cancellation and stale-result rejection now guard insertion. The destination snapshot includes app, focused element, selection, and available text. Protected inputs are refused. Changed/unreadable targets receive a copied result. Pasteboard snapshots preserve every readable type across all items; restoration respects a newer clipboard owner. Added native clipboard round-trip checks with custom binary data and multiple items. Cross-application insertion and undo checks are documented rather than claimed without Accessibility permission. Direct Accessibility replacement is deliberately not used where undo reliability is unknown.

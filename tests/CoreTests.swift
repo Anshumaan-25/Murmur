@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import MurmurCore
 
 var checks = 0
@@ -23,6 +24,20 @@ expect(framed.map { $0.samples.count } == [640, 640, 220], "forty millisecond fr
 expect(AudioTools.trimmed([AudioFrame(Array(repeating: 0, count: 640))]).isEmpty, "silence trimmed")
 expect(abs(AudioFrame([0.5, -0.5]).rms - 0.5) < 0.0001, "level measurement")
 expect(AudioTools.wav(framed).count == 3044, "PCM container size")
+let board = NSPasteboard(name: NSPasteboard.Name("local.murmur.test." + UUID().uuidString))
+let original = NSPasteboardItem(); original.setString("Clipboard fixture", forType: .string)
+let binaryType = NSPasteboard.PasteboardType("local.murmur.binary")
+original.setData(Data([0, 7, 128, 255]), forType: binaryType)
+let secondItem = NSPasteboardItem(); secondItem.setString("Another item", forType: .string)
+board.writeObjects([original, secondItem])
+do {
+    let saved = try PasteboardSnapshot(board)
+    board.clearContents(); board.setString("Temporary text", forType: .string); saved.restore(board)
+    expect(board.pasteboardItems?.count == 2, "all clipboard items restored")
+    expect(board.pasteboardItems?.first?.data(forType: binaryType) == Data([0, 7, 128, 255]), "custom clipboard type preserved")
+    expect(board.pasteboardItems?.last?.string(forType: .string) == "Another item", "second clipboard item preserved")
+} catch { expect(false, "clipboard snapshot succeeds") }
+board.releaseGlobally()
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 
