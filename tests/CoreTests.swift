@@ -71,6 +71,18 @@ do {
     let loaded = try store.values(table: "expansions")
     expect(loaded["my signature"] == "Regards, Alex", "expansion persists")
 } catch { expect(false, "vocabulary integration") }
+expect(RuleCleanup().apply("i can't attend", context: TextContext(style: .formal)) == "I cannot attend.", "formal style expands contraction")
+expect(RuleCleanup().apply("regarding tomorrow", context: TextContext(style: .casual)) == "About tomorrow.", "casual style stays conservative")
+expect(RuleCleanup().apply("i can't attend") == "I can't attend.", "neutral preserves wording")
+do {
+    let store = try HistoryStore(path: ":memory:")
+    try store.setValues(["local.test.mail": "formal", "local.test.chat": "casual"], table: "app_styles")
+    let values = try store.values(table: "app_styles")
+    expect(values["local.test.mail"] == "formal", "style keyed by destination")
+    try store.setValues([:], table: "app_styles")
+    let empty = try store.values(table: "app_styles")
+    expect(empty.isEmpty, "style removal")
+} catch { expect(false, "style storage") }
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 

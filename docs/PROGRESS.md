@@ -37,3 +37,7 @@ Verification correction: core tests passed at M4/M5, but the packaging compile e
 ## M6 editor delivery
 
 The hub now includes vocabulary and spoken expansion editors. They save canonical names, multiline replacements, and exact standalone triggers in the local database. Entries can be removed by clearing their trigger and saving. The native app compiled successfully with these editors.
+
+## M7 — App styles and optional local context
+
+The hub selects an application bundle and saves its neutral/formal/casual style. Conservative style edits are tested independently. When explicitly enabled, selected and neighboring text contribute a bounded set of capitalized spelling hints; the context stays local and protected targets remain excluded. Tests cover per-app persistence and deletion. Recognition quality with app-derived names still requires real dictation samples.
