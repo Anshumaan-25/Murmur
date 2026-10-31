@@ -11,3 +11,5 @@
 - D09: The command line SDK lacks XCTest. Use a compiled standalone Swift verification executable driven by `make test`, rather than installing an IDE or weakening coverage.
 - D10: System English speech assets and a local system language model are already installed. Microphone is undetermined; Accessibility and monitoring are not granted. These are manual OS grants, not build blockers.
 - D11: This SDK ships SwiftUI declarations that depend on absent macro plugins. Use native AppKit views instead of requiring a full IDE or switching to a web runtime. The user experience and native architecture remain intact.
+- D12: Downloaded a checksum-pinned English small-class speech model and a 1.5B four-bit instruction model after authorization. The downloaded decoder reads PCM from standard input; no microphone file is required. System speech reports installed locales but rejects the requested asset state, so the bundled decoder is the initial reliable default.
+- D13: Build optional decoder tools in the project directory. License notices accompany bundled executable resources. The application makes no inference-service requests.

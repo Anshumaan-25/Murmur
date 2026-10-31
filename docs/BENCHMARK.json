@@ -1,0 +1,98 @@
+{
+  "synthetic_voice": "Samantha",
+  "records": [
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.5433690547943115,
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "wall_seconds": 0.8939895409999998,
+      "clip": "meeting",
+      "attempt": 0,
+      "word_error_rate": 0.0
+    },
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.42285001277923584,
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "wall_seconds": 0.4579910000000007,
+      "clip": "meeting",
+      "attempt": 1,
+      "word_error_rate": 0.0
+    },
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.422787070274353,
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "wall_seconds": 0.4421190000000008,
+      "clip": "meeting",
+      "attempt": 2,
+      "word_error_rate": 0.0
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.42193305492401123,
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "wall_seconds": 0.4592127079999999,
+      "clip": "numbers",
+      "attempt": 0,
+      "word_error_rate": 0.0625
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4365870952606201,
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "wall_seconds": 0.45756091699999946,
+      "clip": "numbers",
+      "attempt": 1,
+      "word_error_rate": 0.0625
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4216620922088623,
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "wall_seconds": 0.4587564999999998,
+      "clip": "numbers",
+      "attempt": 2,
+      "word_error_rate": 0.0625
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.43491196632385254,
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "wall_seconds": 0.47001445799999964,
+      "clip": "correction",
+      "attempt": 0,
+      "word_error_rate": 0.0
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4445919990539551,
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "wall_seconds": 0.46659245899999924,
+      "clip": "correction",
+      "attempt": 1,
+      "word_error_rate": 0.0
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4384729862213135,
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "wall_seconds": 0.4587870830000007,
+      "clip": "correction",
+      "attempt": 2,
+      "word_error_rate": 0.0
+    }
+  ],
+  "p50_wall_seconds": 0.4587870830000007,
+  "mean_wer": 0.020833333333333332,
+  "note": "Decoder process startup included. Synthetic clips are shorter than the ten-second acceptance utterance. Microphone and insertion are not measured here."
+}
