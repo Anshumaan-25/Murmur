@@ -1,0 +1,10 @@
+.build/
+.local/
+.build-cache/
+models/
+artifacts/
+.DS_Store
+*.xcuserstate
+*.aiff
+*.wav
+*.caf
