@@ -19,3 +19,15 @@ Per-session cancellation and stale-result rejection now guard insertion. The des
 ## M4 — Indicator and hold gesture
 
 Added an original nonactivating floating indicator with live microphone level, transient state messages, cross-Space/fullscreen collection behavior, and saved edge docking. Fn hold handling is available when Input Monitoring is granted; the toggle remains independent. The app explains the system emoji-picker conflict and rechecks monitoring on activation. Fullscreen focus and the hardware globe gesture require the manual checks.
+
+## M5 — Rules, context, and local history checkpoint
+
+Implemented deterministic cleanup with forty golden cases, output fidelity guards for optional local generation, destination identity context, SQLite history containing recognition/edited/delivered text, and retention policies. The optional 1.5B four-bit model took 5.389 seconds cold and is disabled because it fails the latency gate. No recording is written by default; explicit audio retention is a local preference.
+
+Measured speech-only synthetic median: 0.459 seconds including decoder process startup. Mean normalized word error: 2.1%. Full ten-second release-to-paste, microphone startup, and app-specific compatibility remain manual acceptance items because OS grants are absent. Tests cover cleanup, session invalidation, audio handling, clipboard round trips, and actual SQLite operations.
+
+The user explicitly authorized continued work through the extras; this records the requested checkpoint without pausing. Continue with dictionary, expansion, styles, hands-free controls, editing commands, and hub editors.
+
+## M6 — Vocabulary and spoken expansions
+
+Dictionary terms persist in SQLite and are supplied to supporting recognition adapters as vocabulary hints, then used for canonical spelling. Exact spoken expansion triggers substitute the saved text without running cleanup over its formatting. Tests cover deduplication, spelling, exact-match behavior, and persistence. Editors are being integrated into the hub milestone.

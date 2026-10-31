@@ -38,6 +38,39 @@ do {
     expect(board.pasteboardItems?.last?.string(forType: .string) == "Another item", "second clipboard item preserved")
 } catch { expect(false, "clipboard snapshot succeeds") }
 board.releaseGlobally()
+struct Golden: Decodable { let input: String; let expected: String }
+let goldenURL = Bundle.module.url(forResource: "cases", withExtension: "json", subdirectory: "golden")!
+do {
+    let cases = try JSONDecoder().decode([Golden].self, from: Data(contentsOf: goldenURL))
+    expect(cases.count >= 30, "golden suite minimum")
+    for (index, sample) in cases.enumerated() { let actual = RuleCleanup().apply(sample.input); if actual != sample.expected { print("Golden \(index): got \(actual.debugDescription), expected \(sample.expected.debugDescription)") }; expect(actual == sample.expected, "golden \(index)") }
+} catch { expect(false, "golden fixtures decode") }
+expect(!TextGuard.accepts("Here is an answer with unrelated content", original: "Send the invoice."), "unrelated model output rejected")
+expect(!TextGuard.accepts("Meet at 5.", original: "Meet at 4."), "changed number rejected")
+expect(TextGuard.accepts("Send the note.", original: "Send the note."), "faithful output allowed")
+do {
+    let store = try HistoryStore(path: ":memory:")
+    let record = Utterance(application: "test", duration: 4, raw: "um hello", cleaned: "Hello.", inserted: "Hello.", outcome: "inserted", latency: 0.5)
+    try store.save(record)
+    let savedRows = try store.records(); expect(savedRows.first?.raw == "um hello", "raw history preserved")
+    let searched = try store.records(search: "Hello"); expect(searched.count == 1, "history searchable")
+    try store.save(Utterance(timestamp: Date().addingTimeInterval(-90000), application: "test", duration: 1, raw: "old", cleaned: "Old.", inserted: "", outcome: "copied", latency: 0.2))
+    try store.prune(.day); let recentRows = try store.records(); expect(recentRows.count == 1, "daily retention expires old rows")
+    try store.prune(.never); let emptyRows = try store.records(); expect(emptyRows.isEmpty, "disabled history removes content")
+} catch { expect(false, "history integration") }
+do {
+    let store = try HistoryStore(path: ":memory:")
+    try store.setDictionary(["Murmur", "Acme", "Acme", " "])
+    let vocabulary = try store.dictionary()
+    expect(vocabulary == ["Acme", "Murmur"], "dictionary canonical and deduplicated")
+    let context = TextContext(dictionary: vocabulary, expansions: ["my signature": "Regards,\nAlex"])
+    expect(RuleCleanup().apply("try murmur", context: context) == "Try Murmur.", "dictionary spelling retained")
+    expect(RuleCleanup().apply("My signature.", context: context) == "Regards,\nAlex", "exact spoken expansion")
+    expect(RuleCleanup().apply("change my signature please", context: context) == "Change my signature please.", "embedded trigger not expanded")
+    try store.setValues(["my signature": "Regards, Alex"], table: "expansions")
+    let loaded = try store.values(table: "expansions")
+    expect(loaded["my signature"] == "Regards, Alex", "expansion persists")
+} catch { expect(false, "vocabulary integration") }
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 
