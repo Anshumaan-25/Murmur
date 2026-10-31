@@ -103,6 +103,22 @@ do {
     expect(edited == "I cannot attend.", "local editing without model")
 } catch { expect(false, "known editing commands") }
 do { _ = try await CommandRewrite().rewrite(instruction: "Invent a different story", selected: "Keep this fact."); expect(false, "unsupported instruction rejected without a model") } catch { expect(true, "unsupported editing is explicit") }
+let ownerBoard = NSPasteboard(name: .init("local.murmur.owner." + UUID().uuidString))
+ownerBoard.setString("Original", forType: .string)
+do {
+    let snapshot = try PasteboardSnapshot(ownerBoard)
+    ownerBoard.clearContents(); ownerBoard.setString("Offered text", forType: .string)
+    let generation = ownerBoard.changeCount
+    ownerBoard.clearContents(); ownerBoard.setString("New user copy", forType: .string)
+    expect(!snapshot.restore(ownerBoard, ifUnchangedSince: generation), "new clipboard owner protected")
+    expect(ownerBoard.string(forType: .string) == "New user copy", "new user copy remains intact")
+} catch { expect(false, "clipboard ownership check") }
+ownerBoard.releaseGlobally()
+let yesterday = Date().addingTimeInterval(-86400)
+let usage = UsageStatistics([Utterance(application: "test", duration: 6, raw: "", cleaned: "Hello world", inserted: "", outcome: "copied", latency: 0.1), Utterance(timestamp: yesterday, application: "test", duration: 6, raw: "", cleaned: "Another sentence", inserted: "", outcome: "copied", latency: 0.1)])
+expect(usage.words == 4, "statistics count all words")
+expect(abs(usage.wordsPerMinute - 20) < 0.01, "statistics use recording duration")
+expect(usage.streak == 2, "statistics count consecutive local days")
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 

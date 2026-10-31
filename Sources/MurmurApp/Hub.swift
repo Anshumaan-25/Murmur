@@ -11,14 +11,37 @@ final class ActionButton: NSButton {
         self.init(title: title, target: nil, action: nil); perform = action; target = self; self.action = #selector(invoke)
         bezelStyle = .rounded
     }
+    override func draw(_ dirtyRect: NSRect) {
+        let background = isHighlighted ? NSColor.controlAccentColor.withAlphaComponent(0.35) : NSColor.controlAccentColor.withAlphaComponent(0.15)
+        background.setFill(); NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7).fill()
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor]
+        let text = title as NSString; let size = text.size(withAttributes: attributes)
+        text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2), withAttributes: attributes)
+    }
     @objc func invoke() { perform?() }
+}
+final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
+final class NavigationControl: NSSegmentedControl {
+    override func draw(_ dirtyRect: NSRect) {
+        let width = bounds.width / CGFloat(max(1, segmentCount))
+        for segment in 0..<segmentCount {
+            let rectangle = NSRect(x: CGFloat(segment) * width, y: 0, width: width, height: bounds.height).insetBy(dx: 2, dy: 1)
+            (segment == selectedSegment ? NSColor.controlAccentColor.withAlphaComponent(0.2) : NSColor.controlBackgroundColor).setFill()
+            NSBezierPath(roundedRect: rectangle, xRadius: 7, yRadius: 7).fill()
+            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: segment == selectedSegment ? .semibold : .regular), .foregroundColor: NSColor.labelColor]
+            let text = (label(forSegment: segment) ?? "") as NSString; let size = text.size(withAttributes: attributes)
+            text.draw(at: NSPoint(x: rectangle.midX - size.width / 2, y: rectangle.midY - size.height / 2), withAttributes: attributes)
+        }
+    }
 }
 @MainActor final class Hub: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     let controller: DictationController
     let content = NSView()
     let pages = NSStackView()
     var page = 0
-    let navigation = NSSegmentedControl(labels: ["History", "Vocabulary", "Snippets", "Styles", "Settings"], trackingMode: .selectOne, target: nil, action: nil)
+    var previousApp: NSRunningApplication?
+    let navigation = NavigationControl(labels: ["History", "Vocabulary", "Snippets", "Styles", "Settings"], trackingMode: .selectOne, target: nil, action: nil)
+    let statsLabel = NSTextField(labelWithString: "")
     let statusLabel = NSTextField(labelWithString: "Ready · Control Option Space")
     var table = NSTableView()
     var details = NSTextView()
@@ -48,7 +71,7 @@ final class ActionButton: NSButton {
     func label(_ text: String, size: CGFloat = 13, weight: NSFont.Weight = .regular) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text); field.font = .systemFont(ofSize: size, weight: weight); return field
     }
-    func column(_ spacing: CGFloat = 14) -> NSStackView { let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = spacing; return stack }
+    func column(_ spacing: CGFloat = 14) -> NSStackView { let stack = FlippedStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = spacing; return stack }
     func row(_ views: [NSView]) -> NSStackView { let stack = NSStackView(views: views); stack.orientation = .horizontal; stack.spacing = 12; return stack }
     func buildShell() {
         let title = label("Murmur", size: 30, weight: .bold)
@@ -58,12 +81,12 @@ final class ActionButton: NSButton {
         let top = column(8); top.addArrangedSubview(header); top.addArrangedSubview(subtitle)
         navigation.selectedSegment = 0; navigation.target = self; navigation.action = #selector(navigate)
         pages.orientation = .vertical; pages.alignment = .leading; pages.spacing = 16
-        let footer = row([statusLabel, ActionButton("Start / stop") { [weak self] in self?.window?.orderOut(nil); self?.controller.toggle() }, ActionButton("Cancel") { [weak self] in self?.controller.cancel() }])
+        let footer = row([statusLabel, ActionButton("Start / stop") { [weak self] in self?.dictateFromHub() }, ActionButton("Cancel") { [weak self] in self?.controller.cancel() }])
         statusLabel.textColor = .secondaryLabelColor; statusLabel.lineBreakMode = .byTruncatingTail
         for view in [top, navigation, pages, footer] { view.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(view) }
         NSLayoutConstraint.activate([
-            top.topAnchor.constraint(equalTo: content.topAnchor, constant: 28), top.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 30), top.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -30),
-            navigation.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 24), navigation.leadingAnchor.constraint(equalTo: top.leadingAnchor),
+            top.topAnchor.constraint(equalTo: content.topAnchor, constant: 28), top.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 30), top.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -30), top.heightAnchor.constraint(equalToConstant: 68),
+            navigation.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 24), navigation.leadingAnchor.constraint(equalTo: top.leadingAnchor), navigation.heightAnchor.constraint(equalToConstant: 32), navigation.widthAnchor.constraint(equalToConstant: 540),
             pages.topAnchor.constraint(equalTo: navigation.bottomAnchor, constant: 24), pages.leadingAnchor.constraint(equalTo: top.leadingAnchor), pages.trailingAnchor.constraint(equalTo: top.trailingAnchor), pages.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -18),
             footer.leadingAnchor.constraint(equalTo: top.leadingAnchor), footer.trailingAnchor.constraint(equalTo: top.trailingAnchor), footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20)
         ])
@@ -71,7 +94,12 @@ final class ActionButton: NSButton {
         controller.received = { [weak self] text in self?.details.string = text }
         controller.changed = { [weak self] in self?.reloadHistory() }
     }
-    func show() { NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil); if page == 0 { reloadHistory() } }
+    func dictateFromHub() {
+        window?.orderOut(nil)
+        previousApp?.activate(options: [.activateAllWindows])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.controller.toggle() }
+    }
+    func show() { if let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = app }; NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil); if page == 0 { reloadHistory() } }
     @objc func navigate() { page = navigation.selectedSegment; render() }
     func render() {
         for view in pages.arrangedSubviews { pages.removeArrangedSubview(view); view.removeFromSuperview() }
@@ -90,7 +118,8 @@ final class ActionButton: NSButton {
     func historyPage() {
         rows = (try? controller.history?.records()) ?? []
         let stats = UsageStatistics(rows)
-        fillWidth(label("\(stats.words) words  ·  \(Int(stats.wordsPerMinute)) words/min  ·  \(stats.streak)-day streak", size: 16, weight: .medium))
+        statsLabel.stringValue = "\(stats.words) words  ·  \(Int(stats.wordsPerMinute)) words/min  ·  \(stats.streak)-day streak"
+        statsLabel.font = .systemFont(ofSize: 16, weight: .medium); fillWidth(statsLabel)
         search = NSSearchField(); search.placeholderString = "Search your dictations"; search.delegate = self; fillWidth(search)
         table = NSTableView(); table.usesAlternatingRowBackgroundColors = true; table.rowHeight = 32; table.headerView = NSTableHeaderView()
         for (key, title, width) in [("when", "When", 140.0), ("app", "Application", 180.0), ("text", "Text", 490.0)] { let c = NSTableColumn(identifier: .init(key)); c.title = title; c.width = width; table.addTableColumn(c) }
@@ -99,7 +128,12 @@ final class ActionButton: NSButton {
         let (detail, detailScroll) = editor("Your dictations will appear here. Start from the menu bar or use Control Option Space.", height: 130); details = detail; details.isEditable = false; fillWidth(detailScroll)
         fillWidth(row([ActionButton("Copy selected") { [weak self] in self?.copySelected() }, ActionButton("Delete selected") { [weak self] in self?.deleteSelected() }, ActionButton("Export history…") { [weak self] in self?.exportHistory() }]))
     }
-    func reloadHistory() { guard page == 0 else { return }; rows = (try? controller.history?.records(search: search.stringValue)) ?? []; table.reloadData() }
+    func reloadHistory() {
+        guard page == 0 else { return }
+        rows = (try? controller.history?.records(search: search.stringValue)) ?? []; table.reloadData()
+        let stats = UsageStatistics((try? controller.history?.records()) ?? [])
+        statsLabel.stringValue = "\(stats.words) words  ·  \(Int(stats.wordsPerMinute)) words/min  ·  \(stats.streak)-day streak"
+    }
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
     func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row) else { return nil }; let record = rows[row]
@@ -113,7 +147,11 @@ final class ActionButton: NSButton {
     }
     func controlTextDidChange(_ notification: Notification) { if notification.object as? NSSearchField === search { reloadHistory() } }
     func copySelected() { guard rows.indices.contains(table.selectedRow) else { return }; NSPasteboard.general.clearContents(); NSPasteboard.general.setString(rows[table.selectedRow].cleaned, forType: .string); statusLabel.stringValue = "Copied" }
-    func deleteSelected() { guard rows.indices.contains(table.selectedRow) else { return }; do { try controller.history?.delete(rows[table.selectedRow].id); reloadHistory(); details.string = "Deleted locally." } catch { statusLabel.stringValue = error.localizedDescription } }
+    func deleteSelected() { guard rows.indices.contains(table.selectedRow) else { return }; do { let id = rows[table.selectedRow].id
+            try controller.history?.delete(id)
+            let audio = Preferences.directory.appendingPathComponent("Recordings").appendingPathComponent(id.uuidString + ".wav")
+            if FileManager.default.fileExists(atPath: audio.path) { try FileManager.default.removeItem(at: audio) }
+            reloadHistory(); details.string = "Deleted locally." } catch { statusLabel.stringValue = error.localizedDescription } }
     func exportHistory() {
         let save = NSSavePanel(); save.allowedContentTypes = [.json]; save.nameFieldStringValue = "Murmur-history.json"
         if save.runModal() == .OK, let url = save.url { do { let records = try controller.history?.records() ?? []; let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; encoder.dateEncodingStrategy = .iso8601; try encoder.encode(records).write(to: url, options: .atomic); statusLabel.stringValue = "History exported" } catch { statusLabel.stringValue = error.localizedDescription } }
@@ -194,6 +232,7 @@ final class ActionButton: NSButton {
         body.addArrangedSubview(row([ActionButton("Start at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off")") { [weak self] in self?.toggleStartup() }, ActionButton("Choose speech model…") { [weak self] in self?.chooseSpeechModel() }, ActionButton("Choose decoder…") { [weak self] in self?.chooseDecoder() }]))
         let scroller = scroll(body); fillWidth(scroller); scroller.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
         body.frame.size = NSSize(width: 820, height: 760)
+        scroller.contentView.scroll(to: .zero); scroller.reflectScrolledClipView(scroller.contentView)
         fillWidth(ActionButton("Save settings") { [weak self] in self?.saveSettings() })
     }
     static func privacy(_ category: String) { if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + category) { NSWorkspace.shared.open(url) } }
@@ -217,8 +256,8 @@ final class ActionButton: NSButton {
             var input = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams, mScope: kAudioDevicePropertyScopeInput, mElement: kAudioObjectPropertyElementMain); var size: UInt32 = 0
             guard AudioObjectGetPropertyDataSize(device, &input, 0, nil, &size) == noErr, size > 0 else { return nil }
             var nameAddress = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-            var name: CFString = "Microphone" as CFString; var nameSize = UInt32(MemoryLayout<CFString>.size)
-            guard AudioObjectGetPropertyData(device, &nameAddress, 0, nil, &nameSize, &name) == noErr else { return nil }; return (device, name as String)
+            var name: Unmanaged<CFString>?; var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            guard AudioObjectGetPropertyData(device, &nameAddress, 0, nil, &nameSize, &name) == noErr else { return nil }; guard let name else { return nil }; return (device, name.takeRetainedValue() as String)
         }
     }
 }

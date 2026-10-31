@@ -49,3 +49,9 @@ Hands-free recording stops after voiced audio followed by the selected silence i
 ## M9 — Selected-text commands
 
 The command shortcut captures the original selection, recognizes a spoken editing request, and replaces only the unchanged destination using a paste operation owned by the target app's undo stack. Known casing/tone/shortening edits run deterministically. Other edits can use the downloaded local instruction model with a twenty-second deadline and output-size validation; model edits are separate from the disabled automatic cleanup pass. Unsupported requests are explicit when the model is absent. Unit checks cover deterministic edits and unsupported behavior; actual replacement and undo remain permission-gated manual checks.
+
+## M10 — Hub and settings
+
+Delivered searchable history with recognized/cleaned/delivered details, copy/delete/JSON export, aggregate word count, dictation WPM and day streaks. Added vocabulary, expansion and app-style editors; microphone, English locale, shortcut, local-context, recording, silence, duration and clipboard settings; history retention; startup controls; and local-model selection. Native window rendering is inspected through an app-owned bitmap path without capturing other applications. The optional automatic model pass remains disabled after its timing failure.
+
+The final core gate currently passes 89 checks. The bundled recognizer also succeeded under an explicit network-denial policy from a temporary working directory. Its first such run took 4.851 seconds; three warmed network-denied runs took 0.436–0.459 seconds. Reported decoder medians do not stand in for microphone-to-insertion measurements. A real selected-text model example took 5.163 seconds and produced a shorter passage while retaining its numeric detail. The TextEdit automation script returned its documented skip status because Accessibility is not granted.

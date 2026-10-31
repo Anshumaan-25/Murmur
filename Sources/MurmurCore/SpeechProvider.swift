@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Speech
+import Darwin
 
 public struct SpeechResult: Sendable { public let text: String; public let seconds: Double; public init(text: String, seconds: Double) { self.text = text; self.seconds = seconds } }
 public enum SpeechUpdate: Sendable { case partial(String), final(SpeechResult) }
@@ -83,6 +84,7 @@ public enum LocalProcess {
             return try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     let process = Process(); let source = Pipe(); let destination = Pipe()
+                    _ = fcntl(source.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
                     process.executableURL = executable; process.arguments = arguments
                     process.standardInput = source; process.standardOutput = destination; process.standardError = FileHandle.nullDevice
                     do {

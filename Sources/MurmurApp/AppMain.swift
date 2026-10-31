@@ -1,4 +1,6 @@
 import AppKit
+import AVFoundation
+import ApplicationServices
 import MurmurCore
 
 @MainActor final class MurmurDelegate: NSObject, NSApplicationDelegate {
@@ -18,8 +20,13 @@ import MurmurCore
         if !UserDefaults.standard.bool(forKey: "hasLaunched") || CommandLine.arguments.contains("--show") || CommandLine.arguments.contains("--snapshot") { showHub(); UserDefaults.standard.set(true, forKey: "hasLaunched") }
         if let index = CommandLine.arguments.firstIndex(of: "--snapshot"), CommandLine.arguments.count > index + 1 {
             let output = CommandLine.arguments[index + 1]
+            if let pageIndex = CommandLine.arguments.firstIndex(of: "--page"), CommandLine.arguments.count > pageIndex + 1, let page = Int(CommandLine.arguments[pageIndex + 1]), (0...4).contains(page) {
+                hub?.page = page; hub?.navigation.selectedSegment = page; hub?.render()
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 if let view = self?.hub?.window?.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    func invalidate(_ child: NSView) { child.needsDisplay = true; for descendant in child.subviews { invalidate(descendant) } }
+                    invalidate(view); view.layoutSubtreeIfNeeded(); view.displayIfNeeded()
                     view.cacheDisplay(in: view.bounds, to: bitmap)
                     try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output))
                 }
@@ -28,6 +35,7 @@ import MurmurCore
         }
     }
     func applicationDidBecomeActive(_ notification: Notification) { controller.hotkeys.enableHold(controller.preferences.holdEnabled) }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showHub(); return true }
     @objc func showHub() { hub?.show() }
     @objc func dictate() { controller.toggle() }
     @objc func edit() { controller.start(command: true) }
@@ -37,6 +45,22 @@ import MurmurCore
 @main struct MurmurEntry {
     @MainActor static func main() {
         let app = NSApplication.shared
+        if CommandLine.arguments.contains("--diagnostics") {
+            let resources = Bundle.main.resourceURL!
+            let result: [String: Any] = ["microphone_authorized": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized, "accessibility_authorized": AXIsProcessTrusted(), "monitoring_authorized": CGPreflightListenEventAccess(), "speech_model_bundled": FileManager.default.fileExists(atPath: resources.appendingPathComponent("speech-model.bin").path), "editing_model_bundled": FileManager.default.fileExists(atPath: resources.appendingPathComponent("editing-model.gguf").path), "automatic_model_cleanup": false]
+            if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), let text = String(data: data, encoding: .utf8) { print(text) }
+            return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--test-insert"), CommandLine.arguments.count > index + 1 {
+            app.setActivationPolicy(.accessory)
+            guard AXIsProcessTrusted() else { print("Accessibility grant is required for insertion verification."); return }
+            let text = CommandLine.arguments[index + 1]
+            Task { @MainActor in
+                do { let result = try await ClipboardInserter().insert(text, destination: Destination.capture()); print("Insertion check: \(result.rawValue)") } catch { print(error.localizedDescription) }
+                app.stop(nil)
+            }
+            app.run(); return
+        }
         let delegate = MurmurDelegate()
         app.delegate = delegate
         app.run()

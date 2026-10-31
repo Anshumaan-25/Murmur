@@ -10,4 +10,4 @@ run: app
 demo:
 	bash scripts/demo.sh
 bench:
-	swift run -c release murmur-bench
+	python3 scripts/benchmark.py

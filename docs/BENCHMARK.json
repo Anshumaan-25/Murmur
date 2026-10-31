@@ -94,5 +94,49 @@
   ],
   "p50_wall_seconds": 0.4587870830000007,
   "mean_wer": 0.020833333333333332,
-  "note": "Decoder process startup included. Synthetic clips are shorter than the ten-second acceptance utterance. Microphone and insertion are not measured here."
+  "note": "Decoder process startup included. Synthetic clips are shorter than the ten-second acceptance utterance. Microphone and insertion are not measured here.",
+  "ten_second_input": {
+    "description": "Five full ten-second synthetic PCM inputs. This measures batch decoding, not actual microphone release-to-insertion.",
+    "reference": "Please send the revised meeting notes to our design team before four tomorrow afternoon and include the updated budget and schedule.",
+    "records": [
+      {
+        "audio_seconds": 10,
+        "provider": "Downloaded speech",
+        "recognition_seconds": 0.5825400352478027,
+        "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+        "wall_seconds": 0.60277425
+      },
+      {
+        "audio_seconds": 10,
+        "provider": "Downloaded speech",
+        "recognition_seconds": 0.4545290470123291,
+        "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+        "wall_seconds": 0.474168417
+      },
+      {
+        "audio_seconds": 10,
+        "provider": "Downloaded speech",
+        "recognition_seconds": 0.4512389898300171,
+        "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+        "wall_seconds": 0.480704625
+      },
+      {
+        "audio_seconds": 10,
+        "provider": "Downloaded speech",
+        "recognition_seconds": 0.4554020166397095,
+        "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+        "wall_seconds": 0.4882299999999997
+      },
+      {
+        "audio_seconds": 10,
+        "provider": "Downloaded speech",
+        "recognition_seconds": 0.4456530809402466,
+        "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+        "wall_seconds": 0.4678970840000001
+      }
+    ],
+    "p50_decoder_wall_seconds": 0.480704625,
+    "cleanup_model_cold_seconds": 5.389093792,
+    "cleanup_model_enabled": false
+  }
 }

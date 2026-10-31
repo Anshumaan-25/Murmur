@@ -17,3 +17,10 @@ public struct PasteboardSnapshot {
         if !restored.isEmpty { board.writeObjects(restored) }
     }
 }
+
+public extension PasteboardSnapshot {
+    @discardableResult func restore(_ board: NSPasteboard, ifUnchangedSince generation: Int) -> Bool {
+        guard board.changeCount == generation else { return false }
+        restore(board); return true
+    }
+}

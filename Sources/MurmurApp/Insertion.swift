@@ -53,7 +53,7 @@ struct Destination {
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true), let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else { throw MurmurError.unavailable("Cannot create a paste event.") }
         board.clearContents(); board.setString(text, forType: .string)
         let offered = board.changeCount
-        let restore = { if board.changeCount == offered { saved.restore(board) } }
+        let restore = { _ = saved.restore(board, ifUnchangedSince: offered) }
         restoration = restore
         down.flags = .maskCommand; up.flags = .maskCommand
         down.post(tap: .cghidEventTap); up.post(tap: .cghidEventTap)

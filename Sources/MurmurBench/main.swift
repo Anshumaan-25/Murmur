@@ -15,6 +15,11 @@ if CommandLine.arguments.count < 2 {
                 let locales = await SpeechTranscriber.installedLocales
                 print("Installed speech languages: \(locales.map(\.identifier).joined(separator: ", "))")
                 print("Microphone status: \(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)")
+            } else if let instruction = option("--rewrite"), let selected = option("--selected"), let decoder = option("--decoder"), let model = option("--model") {
+                let start = Date()
+                let text = try await CommandRewrite(executable: URL(fileURLWithPath: decoder), model: URL(fileURLWithPath: model)).rewrite(instruction: instruction, selected: selected)
+                let json: [String: Any] = ["seconds": Date().timeIntervalSince(start), "text": text]
+                print(String(data: try JSONSerialization.data(withJSONObject: json), encoding: .utf8)!)
             } else if let file = option("--file") {
                 let frames = try AudioTools.readFile(URL(fileURLWithPath: file))
                 let provider: any SpeechProvider

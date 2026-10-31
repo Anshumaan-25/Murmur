@@ -28,7 +28,7 @@ def main():
     cache = ROOT / ".local" / "cleanroom"
     cache.mkdir(parents=True, exist_ok=True)
     inputs = [p for p in SOURCE.rglob("*") if p.is_file() and p.suffix in {".txt", ".md", ".js", ".json", ".proto", ".mjs", ".html"}]
-    identity = hashlib.sha256(json.dumps([(str(p.relative_to(SOURCE)), p.stat().st_size, p.stat().st_mtime_ns) for p in sorted(inputs)]).encode()).hexdigest()
+    identity = hashlib.sha256(("bare-hosts-v2" + json.dumps([(str(p.relative_to(SOURCE)), p.stat().st_size, p.stat().st_mtime_ns) for p in sorted(inputs)])).encode()).hexdigest()
     combined_path = cache / (identity + ".txt")
     hosts_path = cache / (identity + ".json")
     if not combined_path.exists() or not hosts_path.exists():
@@ -40,6 +40,7 @@ def main():
                 except (UnicodeError, OSError):
                     continue
                 combined.write(normalized(text) + "\n")
+                hosts.update(h.lower() for h in re.findall(r"(?<![A-Za-z0-9.-])(?:[A-Za-z0-9][A-Za-z0-9-]*\.)+(?:com|org|net|io|ai|co|app|dev|cloud|edu|gov)(?![A-Za-z0-9.-])", text))
                 for candidate in re.findall(r'(?:https?|wss?)://[A-Za-z0-9][A-Za-z0-9.\-]*(?::[0-9]+)?', text):
                     host = urlsplit(candidate).hostname
                     if host and "." in host and len(host) > 4:

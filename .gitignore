@@ -8,3 +8,6 @@ artifacts/
 *.aiff
 *.wav
 *.caf
+
+__pycache__/
+*.pyc

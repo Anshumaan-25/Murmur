@@ -20,6 +20,7 @@ import MurmurCore
     var lastSpeech = Date()
     var hadVoice = false
     var timer: Timer?
+    var retentionTimer: Timer?
     var lastText = ""
     var commandMode = false
     let modelPassValidated = false
@@ -52,13 +53,24 @@ import MurmurCore
             self.lastLevelUpdate = Date(); self.indicator.level(value)
         } }
         applyPreferences()
+        retentionTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in guard let self else { return }; try? self.history?.prune(self.preferences.retention); self.pruneRecordings() }
+        }
+    }
+    func pruneRecordings() {
+        let directory = Preferences.directory.appendingPathComponent("Recordings")
+        guard preferences.retention != .forever, let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.creationDateKey]) else { return }
+        for file in files where file.pathExtension == "wav" && UUID(uuidString: file.deletingPathExtension().lastPathComponent) != nil {
+            let created = (try? file.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+            if preferences.retention == .never || created < Date().addingTimeInterval(-86400) { try? FileManager.default.removeItem(at: file) }
+        }
     }
     func applyPreferences() {
         microphone.inputDevice = preferences.microphone
         hotkeys.enableHold(preferences.holdEnabled)
         hotkeys.configure(keyCode: preferences.toggleKey)
         UserDefaults.standard.set(preferences.holdEnabled, forKey: "holdEnabled")
-        do { try preferences.save(); try history?.prune(preferences.retention) } catch { announce("Could not save local preferences.") }
+        do { try preferences.save(); try history?.prune(preferences.retention); pruneRecordings() } catch { announce("Could not save local preferences.") }
     }
     func toggle() { if sessions.phase == .listening { finish() } else { start() } }
     func start(command: Bool = false) {
@@ -97,7 +109,7 @@ import MurmurCore
         let styles = (try? history?.values(table: "app_styles")) ?? [:]
         let app = target?.bundle ?? ""
         let context = TextContext(application: app, style: WritingStyle(rawValue: styles[app] ?? "neutral") ?? .neutral, dictionary: vocabulary, expansions: expansions, selected: prefs.contextEnabled ? target?.selectedText ?? "" : "", surrounding: prefs.contextEnabled ? String((target?.value ?? "").prefix(3000)) : "")
-        if prefs.keepAudio {
+        if prefs.keepAudio && prefs.retention != .never {
             let directory = Preferences.directory.appendingPathComponent("Recordings")
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try? AudioTools.wav(frames).write(to: directory.appendingPathComponent(identity.uuidString + ".wav"), options: .atomic)
