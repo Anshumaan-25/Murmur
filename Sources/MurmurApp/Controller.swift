@@ -88,7 +88,11 @@ import MurmurCore
         let released = Date(); let target = destination; let editing = commandMode; let prefs = preferences
         announce("Recognizing locally…")
         let selected = provider
-        let vocabulary = (try? history?.dictionary()) ?? []
+        var vocabulary = (try? history?.dictionary()) ?? []
+        if prefs.contextEnabled, let target, !target.protected {
+            let words = (target.selectedText + " " + (target.value ?? "")).split(whereSeparator: { !$0.isLetter })
+            vocabulary += Array(Set(words.filter { $0.count > 2 && $0.first?.isUppercase == true }.map(String.init))).sorted().prefix(24)
+        }
         let expansions = (try? history?.values(table: "expansions")) ?? [:]
         let styles = (try? history?.values(table: "app_styles")) ?? [:]
         let app = target?.bundle ?? ""

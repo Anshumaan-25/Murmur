@@ -33,3 +33,7 @@ The user explicitly authorized continued work through the extras; this records t
 Dictionary terms persist in SQLite and are supplied to supporting recognition adapters as vocabulary hints, then used for canonical spelling. Exact spoken expansion triggers substitute the saved text without running cleanup over its formatting. Tests cover deduplication, spelling, exact-match behavior, and persistence. Editors are being integrated into the hub milestone.
 
 Verification correction: core tests passed at M4/M5, but the packaging compile exposed an overly complex numeric expression in the indicator. It was simplified to explicit native coordinate types. Subsequent checkpoints use a fail-fast script requiring tests, application build, clean-room verification, and signature verification before a commit.
+
+## M6 editor delivery
+
+The hub now includes vocabulary and spoken expansion editors. They save canonical names, multiline replacements, and exact standalone triggers in the local database. Entries can be removed by clearing their trigger and saving. The native app compiled successfully with these editors.
