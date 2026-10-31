@@ -31,3 +31,5 @@ The user explicitly authorized continued work through the extras; this records t
 ## M6 — Vocabulary and spoken expansions
 
 Dictionary terms persist in SQLite and are supplied to supporting recognition adapters as vocabulary hints, then used for canonical spelling. Exact spoken expansion triggers substitute the saved text without running cleanup over its formatting. Tests cover deduplication, spelling, exact-match behavior, and persistence. Editors are being integrated into the hub milestone.
+
+Verification correction: core tests passed at M4/M5, but the packaging compile exposed an overly complex numeric expression in the indicator. It was simplified to explicit native coordinate types. Subsequent checkpoints use a fail-fast script requiring tests, application build, clean-room verification, and signature verification before a commit.

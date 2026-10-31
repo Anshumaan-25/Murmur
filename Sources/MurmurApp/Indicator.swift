@@ -18,7 +18,8 @@ final class IndicatorView: NSView {
         for index in 0..<9 {
             let shape = Float(0.35 + 0.65 * abs(sin(Double(index) * 1.7)))
             let height = CGFloat(phase == .listening ? 4 + min(1, amplitude * 16) * shape * 30 : 7)
-            NSBezierPath(roundedRect: NSRect(x: 20 + index * 6, y: 34 - height / 2, width: 3, height: height), xRadius: 1.5, yRadius: 1.5).fill()
+            let rectangle = NSRect(x: CGFloat(20 + index * 6), y: 34 - height / 2, width: 3, height: height)
+            NSBezierPath(roundedRect: rectangle, xRadius: 1.5, yRadius: 1.5).fill()
         }
         let text = message as NSString
         text.draw(in: NSRect(x: 88, y: 19, width: bounds.width - 105, height: 30), withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.white])
