@@ -95,6 +95,14 @@ let cancelledProcess = Task { try await LocalProcess.run(executable: URL(fileURL
 try? await Task.sleep(nanoseconds: 60_000_000)
 cancelledProcess.cancel()
 do { _ = try await cancelledProcess.value; expect(false, "cancel stops child process") } catch { expect(Date().timeIntervalSince(cancellationBegan) < 2, "cancel stops child promptly") }
+do {
+    let caps = try EditingCommand.apply("uppercase", selected: "Hello"); expect(caps == "HELLO", "uppercase editing")
+    let lower = try EditingCommand.apply("lowercase", selected: "Hello"); expect(lower == "hello", "lowercase editing")
+    let shorter = try EditingCommand.apply("make this shorter", selected: "I wanted to let you know that we really need this in order to finish."); expect(shorter == "We need this to finish.", "shorter command preserves key facts")
+    let edited = try await CommandRewrite().rewrite(instruction: "make formal", selected: "I can't attend.")
+    expect(edited == "I cannot attend.", "local editing without model")
+} catch { expect(false, "known editing commands") }
+do { _ = try await CommandRewrite().rewrite(instruction: "Invent a different story", selected: "Keep this fact."); expect(false, "unsupported instruction rejected without a model") } catch { expect(true, "unsupported editing is explicit") }
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 

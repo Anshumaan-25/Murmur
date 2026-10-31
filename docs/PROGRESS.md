@@ -45,3 +45,7 @@ The hub selects an application bundle and saves its neutral/formal/casual style.
 ## M8 — Hands-free and repeated insertion
 
 Hands-free recording stops after voiced audio followed by the selected silence interval, with a maximum duration independent of mode. The previous-text shortcut is available. Optional return-key intent is extracted only at the utterance end and is off by default. Added deterministic boundary tests and a real child-process cancellation check so cancelled recognition does not continue consuming resources.
+
+## M9 — Selected-text commands
+
+The command shortcut captures the original selection, recognizes a spoken editing request, and replaces only the unchanged destination using a paste operation owned by the target app's undo stack. Known casing/tone/shortening edits run deterministically. Other edits can use the downloaded local instruction model with a twenty-second deadline and output-size validation; model edits are separate from the disabled automatic cleanup pass. Unsupported requests are explicit when the model is absent. Unit checks cover deterministic edits and unsupported behavior; actual replacement and undo remain permission-gated manual checks.

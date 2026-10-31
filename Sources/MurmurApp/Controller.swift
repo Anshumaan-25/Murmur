@@ -112,7 +112,14 @@ import MurmurCore
                 let intent = RecordingPolicy.returnIntent(raw, enabled: prefs.spokenReturn && !editing)
                 raw = intent.text; pressReturn = intent.pressReturn
                 let cleaned: String
-                if editing { cleaned = try EditingCommand.apply(raw, selected: target?.selectedText ?? "") }
+                if editing {
+                    let resources = Bundle.main.resourceURL!
+                    let executable = resources.appendingPathComponent("text-complete")
+                    let model = resources.appendingPathComponent("editing-model.gguf")
+                    let available = FileManager.default.isExecutableFile(atPath: executable.path) && FileManager.default.fileExists(atPath: model.path)
+                    announce("Editing locally…")
+                    cleaned = try await CommandRewrite(executable: available ? executable : nil, model: available ? model : nil).rewrite(instruction: raw, selected: target?.selectedText ?? "")
+                }
                 else { cleaned = RuleCleanup().apply(raw, context: context) }
                 guard !cleaned.isEmpty else { throw MurmurError.empty }
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }
