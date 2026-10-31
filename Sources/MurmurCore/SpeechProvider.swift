@@ -61,24 +61,42 @@ public struct ExecutableSpeechProvider: SpeechProvider {
         return SpeechResult(text: text, seconds: Date().timeIntervalSince(start))
     }
 }
+private final class ProcessControl: @unchecked Sendable {
+    let lock = NSLock()
+    var process: Process?
+    var cancelled = false
+    func start(_ value: Process) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !cancelled else { throw CancellationError() }
+        try value.run(); process = value
+    }
+    func cancel() {
+        lock.lock(); cancelled = true; let value = process; lock.unlock()
+        if let value, value.isRunning { value.terminate() }
+    }
+}
 public enum LocalProcess {
     public static func run(executable: URL, arguments: [String], input: Data, timeout: TimeInterval) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process(); let source = Pipe(); let destination = Pipe()
-                process.executableURL = executable; process.arguments = arguments
-                process.standardInput = source; process.standardOutput = destination; process.standardError = FileHandle.nullDevice
-                do {
-                    try process.run()
-                    let deadline = DispatchWorkItem { if process.isRunning { process.terminate() } }
-                    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
-                    DispatchQueue.global().async { do { try source.fileHandleForWriting.write(contentsOf: input) } catch {} ; try? source.fileHandleForWriting.close() }
-                    let output = destination.fileHandleForReading.readDataToEndOfFile()
-                    process.waitUntilExit(); deadline.cancel()
-                    guard process.terminationStatus == 0 else { throw MurmurError.unavailable("Local decoder failed or reached its deadline.") }
-                    continuation.resume(returning: String(data: output, encoding: .utf8) ?? "")
-                } catch { continuation.resume(throwing: error) }
+        let control = ProcessControl()
+        return try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let process = Process(); let source = Pipe(); let destination = Pipe()
+                    process.executableURL = executable; process.arguments = arguments
+                    process.standardInput = source; process.standardOutput = destination; process.standardError = FileHandle.nullDevice
+                    do {
+                        try control.start(process)
+                        let deadline = DispatchWorkItem { control.cancel() }
+                        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
+                        DispatchQueue.global().async { do { try source.fileHandleForWriting.write(contentsOf: input) } catch {} ; try? source.fileHandleForWriting.close() }
+                        let output = destination.fileHandleForReading.readDataToEndOfFile()
+                        process.waitUntilExit(); deadline.cancel()
+                        guard process.terminationStatus == 0 else { throw MurmurError.unavailable("Local decoder stopped before completion.") }
+                        continuation.resume(returning: String(data: output, encoding: .utf8) ?? "")
+                    } catch { continuation.resume(throwing: error) }
+                }
             }
-        }
+        }, onCancel: { control.cancel() })
     }
 }

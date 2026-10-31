@@ -75,7 +75,7 @@ import MurmurCore
             timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.sessions.phase == .listening else { return }
-                    if Date().timeIntervalSince(self.began) >= self.preferences.maximumSeconds || (self.preferences.handsFree && self.hadVoice && Date().timeIntervalSince(self.lastSpeech) >= self.preferences.silenceSeconds) { self.finish() }
+                    if RecordingPolicy.shouldFinish(duration: Date().timeIntervalSince(self.began), silence: Date().timeIntervalSince(self.lastSpeech), heardSpeech: self.hadVoice, handsFree: self.preferences.handsFree, silenceLimit: self.preferences.silenceSeconds, maximum: self.preferences.maximumSeconds) { self.finish() }
                 }
             }
         } catch { _ = sessions.transition(.failed, session: identity); announce(error.localizedDescription); hotkeys.escape(false) }
@@ -109,10 +109,8 @@ import MurmurCore
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }
                 var raw = result.text
                 var pressReturn = false
-                if prefs.spokenReturn, !editing {
-                    let expression = #"(?i)[,\s]*\bpress enter[.!?\s]*$"#
-                    if raw.range(of: expression, options: .regularExpression) != nil { raw = raw.replacingOccurrences(of: expression, with: "", options: .regularExpression); pressReturn = true }
-                }
+                let intent = RecordingPolicy.returnIntent(raw, enabled: prefs.spokenReturn && !editing)
+                raw = intent.text; pressReturn = intent.pressReturn
                 let cleaned: String
                 if editing { cleaned = try EditingCommand.apply(raw, selected: target?.selectedText ?? "") }
                 else { cleaned = RuleCleanup().apply(raw, context: context) }

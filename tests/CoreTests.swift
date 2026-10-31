@@ -83,6 +83,18 @@ do {
     let empty = try store.values(table: "app_styles")
     expect(empty.isEmpty, "style removal")
 } catch { expect(false, "style storage") }
+expect(!RecordingPolicy.shouldFinish(duration: 5, silence: 5, heardSpeech: false, handsFree: true, silenceLimit: 1, maximum: 120), "hands-free waits for first speech")
+expect(RecordingPolicy.shouldFinish(duration: 5, silence: 2, heardSpeech: true, handsFree: true, silenceLimit: 1.5, maximum: 120), "hands-free ends on silence")
+expect(!RecordingPolicy.shouldFinish(duration: 5, silence: 2, heardSpeech: true, handsFree: false, silenceLimit: 1.5, maximum: 120), "toggle ignores silence")
+expect(RecordingPolicy.shouldFinish(duration: 120, silence: 0, heardSpeech: false, handsFree: false, silenceLimit: 1.5, maximum: 120), "duration cap always enforced")
+expect(RecordingPolicy.returnIntent("Send it press enter.", enabled: true).text == "Send it", "terminal return intent extracted")
+expect(!RecordingPolicy.returnIntent("Press enter to continue", enabled: true).pressReturn, "embedded return phrase remains text")
+expect(!RecordingPolicy.returnIntent("Send it press enter", enabled: false).pressReturn, "return disabled by default")
+let cancellationBegan = Date()
+let cancelledProcess = Task { try await LocalProcess.run(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"], input: Data(), timeout: 15) }
+try? await Task.sleep(nanoseconds: 60_000_000)
+cancelledProcess.cancel()
+do { _ = try await cancelledProcess.value; expect(false, "cancel stops child process") } catch { expect(Date().timeIntervalSince(cancellationBegan) < 2, "cancel stops child promptly") }
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 

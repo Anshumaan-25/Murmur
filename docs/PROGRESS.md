@@ -41,3 +41,7 @@ The hub now includes vocabulary and spoken expansion editors. They save canonica
 ## M7 — App styles and optional local context
 
 The hub selects an application bundle and saves its neutral/formal/casual style. Conservative style edits are tested independently. When explicitly enabled, selected and neighboring text contribute a bounded set of capitalized spelling hints; the context stays local and protected targets remain excluded. Tests cover per-app persistence and deletion. Recognition quality with app-derived names still requires real dictation samples.
+
+## M8 — Hands-free and repeated insertion
+
+Hands-free recording stops after voiced audio followed by the selected silence interval, with a maximum duration independent of mode. The previous-text shortcut is available. Optional return-key intent is extracted only at the utterance end and is off by default. Added deterministic boundary tests and a real child-process cancellation check so cancelled recognition does not continue consuming resources.
