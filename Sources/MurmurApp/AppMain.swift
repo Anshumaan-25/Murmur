@@ -31,7 +31,7 @@ import MurmurCore
             stack.edgeInsets = NSEdgeInsets(top: 32, left: 32, bottom: 32, right: 32)
             let title = NSTextField(labelWithString: "Murmur"); title.font = .systemFont(ofSize: 32, weight: .bold); stack.addArrangedSubview(title)
             stack.addArrangedSubview(NSTextField(labelWithString: "Your voice, kept on your Mac."))
-            for (label, action) in [("Enable microphone", #selector(microphone)), ("Accessibility settings", #selector(accessibility)), ("Input Monitoring settings (optional)", #selector(monitoring)), ("Toggle launch at login", #selector(startup)), ("Refresh permission status", #selector(refresh))] {
+            for (label, action) in [("Enable microphone", #selector(microphone)), ("Accessibility settings", #selector(accessibility)), ("Input Monitoring settings (optional)", #selector(monitoring)), ("Toggle launch at login", #selector(startup)), ("Refresh permission status", #selector(refresh)), ("Globe shortcut help", #selector(globeHelp))] {
                 stack.addArrangedSubview(NSButton(title: label, target: self, action: action))
             }
             stack.addArrangedSubview(NSButton(title: "Start / stop · Control Option Space", target: self, action: #selector(dictate)))
@@ -40,6 +40,10 @@ import MurmurCore
             created.contentView = stack; created.center(); window = created
         }
         refresh(); NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil)
+    }
+    func applicationDidBecomeActive(_ notification: Notification) { controller.hotkeys.enableHold(UserDefaults.standard.object(forKey: "holdEnabled") as? Bool ?? true) }
+    @objc func globeHelp() {
+        let alert = NSAlert(); alert.messageText = "Use the globe key for dictation"; alert.informativeText = "Enable Input Monitoring for Murmur. In System Settings → Keyboard, set Press globe key to Do Nothing so the emoji picker does not open when you dictate. Control Option Space always remains available."; alert.runModal()
     }
     @objc func dictate() { controller.toggle() }
     @objc func microphone() { AVCaptureDevice.requestAccess(for: .audio) { _ in DispatchQueue.main.async { self.refresh() } } }
