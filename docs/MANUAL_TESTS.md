@@ -20,3 +20,6 @@ These checks require the signed app's operating-system grants. No permission sta
 
 15. With the Mac unlocked and the installed Murmur app running, run `python3 scripts/cross_app_check.py`. It builds disposable native/WebKit destinations, launches the installed app through Launch Services, and checks actual Unicode paste (plus native undo/redo). A focus change or locked session is a skip, never an instruction to bypass the protected target.
 16. If a dictation is copied, read the specific reason in the indicator or its history outcome. Test missing Accessibility, a moved caret, a changed field, and a held Control/Option key independently.
+
+17. In a custom editor with no accessible text field, keep the original app/window and cursor undisturbed while dictating. Confirm automatic paste. Repeat with a click or cursor key while recognition runs; confirm copied fallback. Input Monitoring is required for this focus-continuity path.
+18. Run `/Applications/Murmur.app/Contents/MacOS/Murmur --diagnostics --check-delivery` with the intended app focused. It asks the existing GUI process to evaluate readiness and prints metadata only; `posted_input` must be false.

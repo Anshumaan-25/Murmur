@@ -10,6 +10,7 @@ import MurmurCore
     let inserter = ClipboardInserter()
     var destination: Destination?
     var destinationTask: Task<Destination, Error>?
+    var focusContinuity: FocusContinuity?
     var preferences = Preferences.load()
     var history: HistoryStore?
     var status: ((String) -> Void)?
@@ -101,13 +102,14 @@ import MurmurCore
         guard validationTask == nil else { announce("Cleanup validation is running. Escape cancels it."); return }
         guard sessions.phase != .inserting && sessions.phase != .listening else { return }
         let triggered = triggerUptime ?? ProcessInfo.processInfo.systemUptime
-        activeTask?.cancel(); destinationTask?.cancel(); sessions.cancel(); commandMode = command
+        activeTask?.cancel(); destinationTask?.cancel(); focusContinuity?.stop(); sessions.cancel(); commandMode = command
         let identity = sessions.begin(); began = Date()
         announce(command ? "Preparing edit…" : "Starting microphone…")
         measurements.feedback(trigger: triggered, painted: ProcessInfo.processInfo.systemUptime)
+        focusContinuity = FocusContinuity(pid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0, toggleKey: UInt16(clamping: preferences.toggleKey), holdKey: preferences.holdEnabled ? UInt16(preferences.holdKey.code) : nil)
         let target = Destination.capture()
-        guard !target.protected else { _ = sessions.transition(.failed, session: identity); announce("Protected fields cannot receive dictation."); return }
-        if command && target.selectedText.isEmpty && target.element != nil { _ = sessions.transition(.failed, session: identity); announce("Select text before starting an editing command."); return }
+        guard !target.protected else { focusContinuity?.stop(); _ = sessions.transition(.failed, session: identity); announce("Protected fields cannot receive dictation."); return }
+        if command && target.selectedText.isEmpty && target.element != nil { focusContinuity?.stop(); _ = sessions.transition(.failed, session: identity); announce("Select text before starting an editing command."); return }
         destination = target; destinationTask = Task { try await Destination.prepared(target) }; hotkeys.escape(true)
         do {
             try microphone.start()
@@ -120,14 +122,14 @@ import MurmurCore
                     if RecordingPolicy.shouldFinish(duration: Date().timeIntervalSince(self.began), silence: ProcessInfo.processInfo.systemUptime - meter.lastVoice, heardSpeech: meter.lastVoice > 0, handsFree: self.preferences.handsFree, silenceLimit: self.preferences.silenceSeconds, maximum: self.preferences.maximumSeconds) { self.finish() }
                 }
             }
-        } catch { destinationTask?.cancel(); _ = sessions.transition(.failed, session: identity); announce(error.localizedDescription); hotkeys.escape(false) }
+        } catch { destinationTask?.cancel(); focusContinuity?.stop(); _ = sessions.transition(.failed, session: identity); announce(error.localizedDescription); hotkeys.escape(false) }
     }
     func finish() {
         guard sessions.phase == .listening, let identity = sessions.id else { return }
         timer?.invalidate(); timer = nil
         let duration = Date().timeIntervalSince(began)
         let frames = AudioTools.trimmed(microphone.stop()); _ = sessions.transition(.processing, session: identity)
-        let released = Date(); let releasedUptime = ProcessInfo.processInfo.systemUptime; let initialTarget = destination; let pendingDestination = destinationTask; let editing = commandMode; let prefs = preferences
+        let released = Date(); let releasedUptime = ProcessInfo.processInfo.systemUptime; let initialTarget = destination; let pendingDestination = destinationTask; let continuity = focusContinuity; let editing = commandMode; let prefs = preferences
         announce("Recognizing locally…")
         let selected = provider
         if prefs.keepAudio && prefs.retention != .never {
@@ -136,6 +138,7 @@ import MurmurCore
             try? AudioTools.wav(frames).write(to: directory.appendingPathComponent(identity.uuidString + ".wav"), options: .atomic)
         }
         activeTask = Task {
+            defer { continuity?.stop() }
             var recognized = ""; var prepared = ""; var app = initialTarget?.bundle ?? ""
             do {
                 let target: Destination?
@@ -177,7 +180,7 @@ import MurmurCore
                 prepared = cleaned
                 lastText = cleaned; received?(cleaned)
                 var outcome = ClipboardInserter.Outcome.copied
-                if let target { outcome = try await inserter.insert(cleaned, destination: target, delay: prefs.clipboardDelay, pressReturn: pressReturn, requireSelection: editing) }
+                if let target { outcome = try await inserter.insert(cleaned, destination: target, delay: prefs.clipboardDelay, pressReturn: pressReturn, requireSelection: editing, continuity: continuity) }
                 guard sessions.accepts(identity) else { return }
                 if outcome == .inserted { measurements.insertion(released: releasedUptime, finished: ProcessInfo.processInfo.systemUptime) }
                 let record = Utterance(id: identity, application: app, duration: duration, raw: result.text, cleaned: cleaned, inserted: outcome == .inserted ? cleaned : "", outcome: outcome == .inserted ? outcome.rawValue : "copied: " + inserter.lastReason.rawValue, latency: Date().timeIntervalSince(released))
@@ -195,8 +198,9 @@ import MurmurCore
     }
     func pasteLast() {
         guard !lastText.isEmpty, sessions.phase != .listening && sessions.phase != .processing && sessions.phase != .inserting else { return }
+        let continuity = FocusContinuity(pid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0, toggleKey: UInt16(clamping: preferences.toggleKey), holdKey: preferences.holdEnabled ? UInt16(preferences.holdKey.code) : nil)
         let target = Destination.capture(); let text = lastText
-        Task { do { let resolved = try await Destination.prepared(target); let result = try await inserter.insert(text, destination: resolved, delay: preferences.clipboardDelay); announce(result == .inserted ? "Inserted previous text" : inserter.lastReason.explanation) } catch { announce(error.localizedDescription) } }
+        Task { defer { continuity.stop() }; do { let resolved = try await Destination.prepared(target); let result = try await inserter.insert(text, destination: resolved, delay: preferences.clipboardDelay, continuity: continuity); announce(result == .inserted ? "Inserted previous text" : inserter.lastReason.explanation) } catch { announce(error.localizedDescription) } }
     }
-    func cancel() { validationTask?.cancel(); timer?.invalidate(); timer = nil; activeTask?.cancel(); destinationTask?.cancel(); microphone.cancel(); inserter.finishRestoration(); sessions.cancel(); hotkeys.escape(false); announce("Cancelled") }
+    func cancel() { validationTask?.cancel(); timer?.invalidate(); timer = nil; activeTask?.cancel(); destinationTask?.cancel(); focusContinuity?.stop(); microphone.cancel(); inserter.finishRestoration(); sessions.cancel(); hotkeys.escape(false); announce("Cancelled") }
 }

@@ -246,6 +246,38 @@ var sixty = AudioMeter(); var thirty = AudioMeter()
 for _ in 0..<12 { _ = sixty.advance(rms: 0.02, delta: 1.0 / 60) }
 for _ in 0..<6 { _ = thirty.advance(rms: 0.02, delta: 1.0 / 30) }
 expect(abs(sixty.value - thirty.value) < 0.00001, "meter response is independent of refresh rate")
+let opaque = FocusEvidence(pid: 42, editable: false)
+expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: false, trusted: true) == .unreadable, "opaque focus cannot paste without continuity evidence")
+expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: false, trusted: true, opaqueFocusStable: true) == .ready, "unchanged opaque keyboard focus can paste without an AX field")
+expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: false, sameWindow: false, trusted: true, opaqueFocusStable: true) == .targetChanged, "opaque paste requires the same known window")
+expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: false, trusted: true, requireSelection: true, opaqueFocusStable: true) == .unreadable, "selected-text rewriting cannot use opaque paste")
+var opaqueOther = opaque; opaqueOther.pid = 99
+expect(DeliveryPolicy.decide(original: opaque, current: opaqueOther, sameElement: false, trusted: true, opaqueFocusStable: true) == .targetChanged, "opaque paste cannot follow an app switch")
+opaqueOther = opaque; opaqueOther.protected = true
+expect(DeliveryPolicy.decide(original: opaque, current: opaqueOther, sameElement: false, trusted: true, opaqueFocusStable: true) == .protectedField, "continuity cannot override a protected input")
+opaqueOther = opaque; opaqueOther.role = "AXButton"
+expect(DeliveryPolicy.decide(original: opaque, current: opaqueOther, sameElement: false, trusted: true, opaqueFocusStable: true) == .unreadable, "known non-text controls cannot use opaque paste")
+expect(DeliveryPolicy.decide(original: opaque, current: focus, sameElement: false, trusted: true, opaqueFocusStable: true) == .ready, "late accessibility can reveal a continuously focused editor")
+expect(DeliveryPolicy.decide(original: focus, current: opaque, sameElement: false, trusted: true, opaqueFocusStable: true) == .ready, "continuity supports a temporarily opaque editor")
+var opaqueUpdated = opaque; opaqueUpdated.role = "AXGroup"; opaqueUpdated.text = "Updated surrounding document"
+expect(DeliveryPolicy.decide(original: opaque, current: opaqueUpdated, sameElement: false, trusted: true, opaqueFocusStable: true) == .ready, "opaque container content is not treated as the focused field value")
+var activity = FocusActivity()
+activity.key(49, dictationChord: true, toggleKey: 49, holdKey: nil)
+expect(activity.unchanged, "dictation toggle does not invalidate keyboard focus")
+activity.key(15, dictationChord: true, toggleKey: 49, holdKey: nil)
+expect(activity.unchanged, "editing shortcut is recognized by focus tracking")
+activity.key(49, dictationChord: false, toggleKey: 49, holdKey: nil)
+expect(!activity.unchanged, "ordinary space typing invalidates opaque focus")
+activity.key(49, dictationChord: true, toggleKey: 49, holdKey: nil)
+expect(!activity.unchanged, "another toggle cannot clear recorded focus changes")
+activity = FocusActivity(); activity.key(124, dictationChord: false, toggleKey: 49, holdKey: nil)
+expect(!activity.unchanged, "arrow-key cursor movement invalidates opaque focus")
+activity = FocusActivity(); activity.key(97, dictationChord: false, toggleKey: 49, holdKey: 97)
+expect(activity.unchanged, "configured physical hold trigger does not invalidate focus")
+activity = FocusActivity(); activity.key(97, dictationChord: false, toggleKey: 49, holdKey: nil)
+expect(!activity.unchanged, "disabled hold key can change focus and must invalidate")
+activity = FocusActivity(); activity.invalidate()
+expect(!activity.unchanged, "pointer interaction or a lost event tap invalidates focus")
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 

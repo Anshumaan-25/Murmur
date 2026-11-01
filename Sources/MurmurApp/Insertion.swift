@@ -56,8 +56,8 @@ struct Destination {
     }
     @MainActor static func prepared(_ initial: Destination? = nil) async throws -> Destination {
         let first = initial ?? capture()
-        guard first.element == nil, !first.protected, AXIsProcessTrusted() else { return first }
-        // Web editors can construct their accessibility focus lazily on the first query.
+        guard !first.editable, !first.protected, AXIsProcessTrusted() else { return first }
+        // Some editors construct accessibility focus lazily on the first query.
         for delay: UInt64 in [60_000_000, 120_000_000, 180_000_000] {
             try await Task.sleep(nanoseconds: delay); try Task.checkCancellation()
             let next = capture()
@@ -74,10 +74,13 @@ struct Destination {
     var evidence: FocusEvidence {
         FocusEvidence(pid: pid, editable: editable, protected: protected, identifier: identifier, role: role, bounds: bounds, text: value, selection: selection.map { NSRange(location: $0.location, length: $0.length) })
     }
-    func reason(comparedTo current: Destination, requireSelection: Bool = false) -> DeliveryReason {
+    func reason(comparedTo current: Destination, requireSelection: Bool = false, opaqueFocusStable: Bool = false) -> DeliveryReason {
         let equal = element.flatMap { a in current.element.map { CFEqual(a, $0) } } ?? false
-        let sameWindow = windowElement.flatMap { a in current.windowElement.map { CFEqual(a, $0) } } ?? true
-        return DeliveryPolicy.decide(original: evidence, current: current.evidence, sameElement: equal, sameWindow: sameWindow, trusted: AXIsProcessTrusted(), requireSelection: requireSelection)
+        let sameWindow = windowElement.flatMap { a in current.windowElement.map { CFEqual(a, $0) } } ?? false
+        return DeliveryPolicy.decide(original: evidence, current: current.evidence, sameElement: equal, sameWindow: sameWindow, trusted: AXIsProcessTrusted(), requireSelection: requireSelection, opaqueFocusStable: opaqueFocusStable)
+    }
+    var diagnostic: [String:Any] {
+        ["app":bundle, "role":role, "has_element":element != nil, "editable":editable, "protected":protected, "has_selection":selection != nil, "has_value":value != nil, "has_window":windowElement != nil]
     }
     func matches(_ current: Destination, requireSelection: Bool = false) -> Bool { reason(comparedTo: current, requireSelection: requireSelection) == .ready }
 
@@ -87,10 +90,11 @@ struct Destination {
     private let clipboard = ClipboardDelivery()
     private(set) var lastReason = DeliveryReason.ready
     private(set) var copiedChangeCount: Int?
-    func insert(_ text: String, destination: Destination, delay: Double = 0.35, pressReturn: Bool = false, requireSelection: Bool = false) async throws -> Outcome {
+    private(set) var lastAttempt: [String:Any] = [:]
+    func insert(_ text: String, destination: Destination, delay: Double = 0.35, pressReturn: Bool = false, requireSelection: Bool = false, continuity: FocusContinuity? = nil) async throws -> Outcome {
         try Task.checkCancellation()
         clipboard.finish(); copiedChangeCount = nil
-        lastReason = destination.reason(comparedTo: Destination.capture(), requireSelection: requireSelection)
+        lastReason = evaluate(destination, current: Destination.capture(), requireSelection: requireSelection, continuity: continuity)
         if lastReason == .protectedField { throw MurmurError.protectedTarget }
         if lastReason == .ready {
             let until = ProcessInfo.processInfo.systemUptime + 1.2
@@ -100,7 +104,7 @@ struct Destination {
                 if ProcessInfo.processInfo.systemUptime >= until { lastReason = .shortcutHeld; break }
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
-            if lastReason == .ready { lastReason = destination.reason(comparedTo: Destination.capture(), requireSelection: requireSelection) }
+            if lastReason == .ready { lastReason = evaluate(destination, current: Destination.capture(), requireSelection: requireSelection, continuity: continuity) }
         }
         if lastReason == .protectedField { throw MurmurError.protectedTarget }
         try Task.checkCancellation()
@@ -119,6 +123,12 @@ struct Destination {
             CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false)?.post(tap: .cghidEventTap)
         }
         return .inserted
+    }
+    private func evaluate(_ original: Destination, current: Destination, requireSelection: Bool, continuity: FocusContinuity?) -> DeliveryReason {
+        let stable = continuity?.pid == original.pid && continuity?.unchanged == true
+        let reason = original.reason(comparedTo: current, requireSelection: requireSelection, opaqueFocusStable: stable)
+        lastAttempt = ["original":original.diagnostic, "current":current.diagnostic, "reason":reason.rawValue, "focus_tracking_available":continuity?.available ?? false, "focus_unchanged":stable, "opaque_delivery":!original.editable && reason == .ready]
+        return reason
     }
     func finishRestoration() { clipboard.finish() }
 }

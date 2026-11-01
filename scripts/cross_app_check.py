@@ -34,31 +34,35 @@ def main():
     subprocess.run(['codesign', '--force', '--sign', '-', str(fixture)], check=True)
     results = {}
     with tempfile.TemporaryDirectory(prefix='murmur-insertion-') as directory:
-        for mode in ['native', 'web']:
+        for mode in ['native', 'web', 'opaque', 'opaque-moved']:
             state = pathlib.Path(directory) / (mode + '-target.json')
             report = pathlib.Path(directory) / (mode + '-delivery.json')
-            target = subprocess.Popen([str(binary), str(state)] + (['--web'] if mode == 'web' else []), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            target = subprocess.Popen([str(binary), str(state)] + (['--web'] if mode == 'web' else ['--opaque'] if mode.startswith('opaque') else []), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
                 read_when_ready(state)
                 time.sleep(0.6)
                 text = 'Murmur insertion check 世界.'
-                subprocess.run(['open', '-g', '-n', str(APP), '--args', '--test-insert', text, '--insert-report', str(report), '--expected-target', 'local.murmur.paste-target'], check=True)
+                subprocess.run(['open', '-g', '-n', str(APP), '--args', '--test-insert', text, '--insert-report', str(report), '--expected-target', 'local.murmur.paste-target'] + (['--move-fixture-cursor'] if mode == 'opaque-moved' else []), check=True)
                 result = read_when_ready(report)
                 if result.get('target_app') != 'local.murmur.paste-target':
-                    print('Cross-app check skipped: the fixture is not focused; the session may be locked.')
+                    print(mode + ': cross-app check skipped; focused application is ' + str(result.get('target_app', 'unknown')))
                     return 2
                 deadline = time.monotonic() + 3
                 while time.monotonic() < deadline and json.loads(state.read_text())['text'] != 'Prefix: ' + text:
                     time.sleep(0.05)
-                if mode == 'native':
+                if mode in ['native', 'opaque']:
                     while time.monotonic() < deadline and 'undo_restored' not in json.loads(state.read_text()):
                         time.sleep(0.05)
                 target_state = json.loads(state.read_text())
                 result['destination_text_matches'] = target_state['text'] == 'Prefix: ' + text
-                if mode == 'native':
+                if mode in ['native', 'opaque']:
                     result['undo_restored'] = target_state.get('undo_restored', False)
                     result['redo_restored'] = target_state.get('redo_restored', False)
-                result['passed'] = result.get('outcome') == 'inserted' and result['destination_text_matches'] and (mode != 'native' or (result['undo_restored'] and result['redo_restored']))
+                result['passed'] = result.get('outcome') == 'inserted' and result['destination_text_matches'] and (mode not in ['native', 'opaque'] or (result['undo_restored'] and result['redo_restored']))
+                if mode == 'opaque':
+                    result['passed'] = result['passed'] and result.get('delivery', {}).get('opaque_delivery', False)
+                if mode == 'opaque-moved':
+                    result['passed'] = result.get('outcome') == 'copied' and target_state['text'] == 'Prefix: ' and result.get('delivery', {}).get('focus_unchanged') is False
                 results[mode] = result
             finally:
                 target.terminate()

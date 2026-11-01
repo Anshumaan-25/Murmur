@@ -29,11 +29,18 @@ public struct FocusEvidence: Sendable {
     }
 }
 public enum DeliveryPolicy {
-    public static func decide(original: FocusEvidence, current: FocusEvidence, sameElement: Bool, sameWindow: Bool = true, trusted: Bool, requireSelection: Bool = false) -> DeliveryReason {
+    public static func decide(original: FocusEvidence, current: FocusEvidence, sameElement: Bool, sameWindow: Bool = true, trusted: Bool, requireSelection: Bool = false, opaqueFocusStable: Bool = false) -> DeliveryReason {
         guard !original.protected, !current.protected else { return .protectedField }
         guard trusted else { return .accessibility }
         guard original.pid == current.pid else { return .targetChanged }
-        guard original.editable, current.editable else { return .unreadable }
+        if !original.editable || !current.editable {
+            let opaqueRoles = ["", "AXGroup", "AXWebArea", "AXUnknown", "AXWindow"]
+            guard !requireSelection, opaqueFocusStable, (original.editable || opaqueRoles.contains(original.role)), (current.editable || opaqueRoles.contains(current.role)) else { return .unreadable }
+            guard sameWindow else { return .targetChanged }
+            // Opaque group values can describe the whole document, not the keyboard destination.
+            // Continuity verifies keyboard focus; normal field snapshots are checked below.
+            return .ready
+        }
         guard sameElement || sameWindow else { return .targetChanged }
         var identity = sameElement
         if !identity, let id = original.identifier, !id.isEmpty, id == current.identifier, original.role == current.role, let a = original.bounds, let b = current.bounds, a.count == 4, b.count == 4, zip(a,b).allSatisfy({ abs($0.0 - $0.1) <= 1.5 }) { identity = true }
