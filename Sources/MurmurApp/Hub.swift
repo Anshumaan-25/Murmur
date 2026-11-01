@@ -77,6 +77,7 @@ final class NavigationControl: NSSegmentedControl {
     func column(_ spacing: CGFloat = 14) -> NSStackView { let stack = FlippedStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = spacing; return stack }
     func row(_ views: [NSView]) -> NSStackView { let stack = NSStackView(views: views); stack.orientation = .horizontal; stack.spacing = 12; return stack }
     func buildShell() {
+        statusLabel.stringValue = "Ready · " + controller.shortcutTitle
         let title = label("Murmur", size: 30, weight: .bold)
         let subtitle = label("A little less typing. Everything stays here.", size: 14)
         subtitle.textColor = .secondaryLabelColor
@@ -129,7 +130,7 @@ final class NavigationControl: NSSegmentedControl {
         for (key, title, width) in [("when", "When", 140.0), ("app", "Application", 180.0), ("text", "Text", 490.0)] { let c = NSTableColumn(identifier: .init(key)); c.title = title; c.width = width; table.addTableColumn(c) }
         table.dataSource = self; table.delegate = self
         let tableScroll = scroll(table, height: 160); fillWidth(tableScroll)
-        let (detail, detailScroll) = editor("Your dictations will appear here. Start from the menu bar or use Control Option Space.", height: 130); details = detail; details.isEditable = false; fillWidth(detailScroll)
+        let (detail, detailScroll) = editor("Your dictations will appear here. Start from the menu bar or use \(controller.shortcutTitle).", height: 130); details = detail; details.isEditable = false; fillWidth(detailScroll)
         fillWidth(row([ActionButton("Copy selected") { [weak self] in self?.copySelected() }, ActionButton("Delete selected") { [weak self] in self?.deleteSelected() }, ActionButton("Export history…") { [weak self] in self?.exportHistory() }]))
     }
     func reloadHistory() {
@@ -214,7 +215,7 @@ final class NavigationControl: NSSegmentedControl {
         let prefs = controller.preferences
         let feedback = SessionMeasurements.median(controller.measurements.feedbackMilliseconds).map { String(format: "%.0f ms", $0) } ?? "not measured"
         let insertion = SessionMeasurements.median(controller.measurements.insertionMilliseconds).map { String(format: "%.0f ms", $0) } ?? "not measured"
-        body.addArrangedSubview(label("This launch · indicator paint dispatch: \(feedback) · release to inserted text: \(insertion)."))
+        body.addArrangedSubview(label("This launch · shortcut feedback: \(feedback) · dictation completion: \(insertion)."))
         let permissionText = "Microphone \(AVCaptureDevice.authorizationStatus(for: .audio) == .authorized ? "✓" : "needs access") · Accessibility \(AXIsProcessTrusted() ? "✓" : "needs access") · Input Monitoring \(CGPreflightListenEventAccess() ? "✓" : "optional")"
         body.addArrangedSubview(label(permissionText))
         body.addArrangedSubview(row([ActionButton("Enable microphone") { AVCaptureDevice.requestAccess(for: .audio) { _ in } }, ActionButton("Accessibility…") { Self.privacy("Privacy_Accessibility") }, ActionButton("Input Monitoring…") { Self.privacy("Privacy_ListenEvent") }]))
@@ -235,7 +236,8 @@ final class NavigationControl: NSSegmentedControl {
         for (key, title, value) in [("hold", "Enable the selected hold-to-talk key", prefs.holdEnabled), ("code", "Preserve exact syntax in code editors and terminals", prefs.preserveCode), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("return", "Allow spoken ‘press enter’ at the end", prefs.spokenReturn), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
             let check = NSButton(checkboxWithTitle: title, target: nil, action: nil); check.state = value ? .on : .off; checks[key] = check; body.addArrangedSubview(check)
         }
-        body.addArrangedSubview(label("For the hold shortcut, set Keyboard → Press globe key → Do Nothing to avoid the emoji picker. Editing: Control Option R. Paste previous: Control Option V."))
+        let holdHelp = prefs.holdKey == .globe ? "Set Keyboard → Press globe key → Do Nothing to avoid the emoji picker." : "Your chosen hold key is passed through to the app you are using."
+        body.addArrangedSubview(label(holdHelp + " Editing: Control Option R. Paste previous: Control Option V."))
         for (key, title, value) in [("silence", "Silence before hands-free finishes (seconds)", prefs.silenceSeconds), ("maximum", "Maximum recording (seconds)", prefs.maximumSeconds), ("clipboard", "Clipboard recovery delay (seconds)", prefs.clipboardDelay)] {
             let input = NSTextField(string: String(value)); input.widthAnchor.constraint(equalToConstant: 80).isActive = true; fields[key] = input; body.addArrangedSubview(row([label(title), input]))
         }
@@ -264,7 +266,7 @@ final class NavigationControl: NSSegmentedControl {
         p.retention = Retention.allCases[max(0, retentionPicker.indexOfSelectedItem)]; p.toggleKey = hotkeyPicker.indexOfSelectedItem == 1 ? 2 : 49
         p.useModel = checks["model"]?.state == .on && controller.modelPassValidated; p.holdEnabled = checks["hold"]?.state == .on; p.holdKey = HoldKey.allCases[max(0, holdPicker.indexOfSelectedItem)]; p.speechEngine = SpeechEngine.allCases[max(0, enginePicker.indexOfSelectedItem)]; p.preserveCode = checks["code"]?.state == .on; p.handsFree = checks["hands"]?.state == .on; p.contextEnabled = checks["context"]?.state == .on; p.spokenReturn = checks["return"]?.state == .on; p.keepAudio = checks["audio"]?.state == .on
         p.silenceSeconds = max(0.5, min(10, fields["silence"]?.doubleValue ?? 1.5)); p.maximumSeconds = max(5, min(600, fields["maximum"]?.doubleValue ?? 120)); p.clipboardDelay = max(0.1, min(2, fields["clipboard"]?.doubleValue ?? 0.35))
-        controller.preferences = p; controller.applyPreferences(); statusLabel.stringValue = "Settings saved"
+        controller.preferences = p; controller.applyPreferences(); render(); statusLabel.stringValue = "Settings saved"
     }
     static func microphones() -> [(AudioDeviceID, String)] {
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)

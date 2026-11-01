@@ -1,0 +1,745 @@
+{
+  "core_checks": 186,
+  "golden_cases": 90,
+  "cleanup_qualification_network_denied": {
+    "qualification": {
+      "accepted": 77,
+      "operatingSystem": "Version 27.0.1 (Build 26A434)",
+      "p95Seconds": 0.4260939359664917,
+      "revision": "cleanup-2",
+      "fixtureDigest": "5e461bb752501a2fe66894690a5ffba22d72c80b59b5ebb479ec7cb8f690ab18",
+      "date": 815204930.44087,
+      "passed": 90,
+      "cases": 90
+    },
+    "details": [
+      {
+        "seconds": 0.8078920841217041,
+        "usedModel": false,
+        "reason": "deadline_or_unavailable",
+        "index": 0,
+        "passed": true
+      },
+      {
+        "seconds": 0.2741750478744507,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 1,
+        "passed": true
+      },
+      {
+        "seconds": 0.3034120798110962,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 2,
+        "passed": true
+      },
+      {
+        "seconds": 0.2982640266418457,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 3,
+        "passed": true
+      },
+      {
+        "seconds": 0.36991703510284424,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 4,
+        "passed": true
+      },
+      {
+        "seconds": 0.29778599739074707,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 5,
+        "passed": true
+      },
+      {
+        "seconds": 0.2983250617980957,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 6,
+        "passed": true
+      },
+      {
+        "seconds": 0.2977980375289917,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 7,
+        "passed": true
+      },
+      {
+        "seconds": 0.2968820333480835,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 8,
+        "passed": true
+      },
+      {
+        "seconds": 0.2976609468460083,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 9,
+        "passed": true
+      },
+      {
+        "seconds": 0.29691100120544434,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 10,
+        "passed": true
+      },
+      {
+        "seconds": 0.2971780300140381,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 11,
+        "passed": true
+      },
+      {
+        "seconds": 0.27103400230407715,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 12,
+        "passed": true
+      },
+      {
+        "seconds": 0.32398295402526855,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 13,
+        "passed": true
+      },
+      {
+        "seconds": 0.4146120548248291,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 14,
+        "passed": true
+      },
+      {
+        "seconds": 0.42652201652526855,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 15,
+        "passed": true
+      },
+      {
+        "seconds": 0.36695408821105957,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 16,
+        "passed": true
+      },
+      {
+        "seconds": 0.36862802505493164,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 17,
+        "passed": true
+      },
+      {
+        "seconds": 0.29702508449554443,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 18,
+        "passed": true
+      },
+      {
+        "seconds": 0.321679949760437,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 19,
+        "passed": true
+      },
+      {
+        "seconds": 0.29328298568725586,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 20,
+        "passed": true
+      },
+      {
+        "seconds": 0.3631240129470825,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 21,
+        "passed": true
+      },
+      {
+        "seconds": 0.35996007919311523,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 22,
+        "passed": true
+      },
+      {
+        "seconds": 0.3182709217071533,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 23,
+        "passed": true
+      },
+      {
+        "seconds": 0.3830149173736572,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 24,
+        "passed": true
+      },
+      {
+        "seconds": 0.34505701065063477,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 25,
+        "passed": true
+      },
+      {
+        "seconds": 0.3000279664993286,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 26,
+        "passed": true
+      },
+      {
+        "seconds": 0.0020520687103271484,
+        "usedModel": false,
+        "reason": "rules",
+        "index": 27,
+        "passed": true
+      },
+      {
+        "seconds": 0.001946091651916504,
+        "usedModel": false,
+        "reason": "rules",
+        "index": 28,
+        "passed": true
+      },
+      {
+        "seconds": 0.27039599418640137,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 29,
+        "passed": true
+      },
+      {
+        "seconds": 0.3958319425582886,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 30,
+        "passed": true
+      },
+      {
+        "seconds": 0.4268289804458618,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 31,
+        "passed": true
+      },
+      {
+        "seconds": 0.3710108995437622,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 32,
+        "passed": true
+      },
+      {
+        "seconds": 0.3658870458602905,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 33,
+        "passed": true
+      },
+      {
+        "seconds": 0.29684996604919434,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 34,
+        "passed": true
+      },
+      {
+        "seconds": 0.2626650333404541,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 35,
+        "passed": true
+      },
+      {
+        "seconds": 0.3234599828720093,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 36,
+        "passed": true
+      },
+      {
+        "seconds": 0.29691600799560547,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 37,
+        "passed": true
+      },
+      {
+        "seconds": 0.2978750467300415,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 38,
+        "passed": true
+      },
+      {
+        "seconds": 0.2660939693450928,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 39,
+        "passed": true
+      },
+      {
+        "seconds": 0.3667879104614258,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 40,
+        "passed": true
+      },
+      {
+        "seconds": 0.32603704929351807,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 41,
+        "passed": true
+      },
+      {
+        "seconds": 0.32235002517700195,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 42,
+        "passed": true
+      },
+      {
+        "seconds": 0.2943800687789917,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 43,
+        "passed": true
+      },
+      {
+        "seconds": 0.3248409032821655,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 44,
+        "passed": true
+      },
+      {
+        "seconds": 0.32679808139801025,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 45,
+        "passed": true
+      },
+      {
+        "seconds": 0.36573708057403564,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 46,
+        "passed": true
+      },
+      {
+        "seconds": 0.2942180633544922,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 47,
+        "passed": true
+      },
+      {
+        "seconds": 0.36716294288635254,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 48,
+        "passed": true
+      },
+      {
+        "seconds": 0.36384594440460205,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 49,
+        "passed": true
+      },
+      {
+        "seconds": 0.3705110549926758,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 50,
+        "passed": true
+      },
+      {
+        "seconds": 0.3691650629043579,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 51,
+        "passed": true
+      },
+      {
+        "seconds": 0.36296701431274414,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 52,
+        "passed": true
+      },
+      {
+        "seconds": 0.29602503776550293,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 53,
+        "passed": true
+      },
+      {
+        "seconds": 0.32326602935791016,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 54,
+        "passed": true
+      },
+      {
+        "seconds": 0.37458598613739014,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 55,
+        "passed": true
+      },
+      {
+        "seconds": 0.36631906032562256,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 56,
+        "passed": true
+      },
+      {
+        "seconds": 0.36711597442626953,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 57,
+        "passed": true
+      },
+      {
+        "seconds": 0.36793994903564453,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 58,
+        "passed": true
+      },
+      {
+        "seconds": 0.3652399778366089,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 59,
+        "passed": true
+      },
+      {
+        "seconds": 0.29452598094940186,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 60,
+        "passed": true
+      },
+      {
+        "seconds": 0.29917609691619873,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 61,
+        "passed": true
+      },
+      {
+        "seconds": 0.3297210931777954,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 62,
+        "passed": true
+      },
+      {
+        "seconds": 0.26224207878112793,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 63,
+        "passed": true
+      },
+      {
+        "seconds": 0.3650040626525879,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 64,
+        "passed": true
+      },
+      {
+        "seconds": 0.29803192615509033,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 65,
+        "passed": true
+      },
+      {
+        "seconds": 0.3271911144256592,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 66,
+        "passed": true
+      },
+      {
+        "seconds": 0.3662210702896118,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 67,
+        "passed": true
+      },
+      {
+        "seconds": 0.3619849681854248,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 68,
+        "passed": true
+      },
+      {
+        "seconds": 0.3668389320373535,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 69,
+        "passed": true
+      },
+      {
+        "seconds": 0.3643059730529785,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 70,
+        "passed": true
+      },
+      {
+        "seconds": 0.32298600673675537,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 71,
+        "passed": true
+      },
+      {
+        "seconds": 0.29816603660583496,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 72,
+        "passed": true
+      },
+      {
+        "seconds": 0.29184508323669434,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 73,
+        "passed": true
+      },
+      {
+        "seconds": 0.2978299856185913,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 74,
+        "passed": true
+      },
+      {
+        "seconds": 0.2963550090789795,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 75,
+        "passed": true
+      },
+      {
+        "seconds": 0.3686239719390869,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 76,
+        "passed": true
+      },
+      {
+        "seconds": 0.35754597187042236,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 77,
+        "passed": true
+      },
+      {
+        "seconds": 0.4118269681930542,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 78,
+        "passed": true
+      },
+      {
+        "seconds": 0.3659919500350952,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 79,
+        "passed": true
+      },
+      {
+        "seconds": 0.36814403533935547,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 80,
+        "passed": true
+      },
+      {
+        "seconds": 0.4260939359664917,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 81,
+        "passed": true
+      },
+      {
+        "seconds": 0.36599910259246826,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 82,
+        "passed": true
+      },
+      {
+        "seconds": 0.32020998001098633,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 83,
+        "passed": true
+      },
+      {
+        "seconds": 0.2983130216598511,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 84,
+        "passed": true
+      },
+      {
+        "seconds": 0.29990100860595703,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 85,
+        "passed": true
+      },
+      {
+        "seconds": 0.2657630443572998,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 86,
+        "passed": true
+      },
+      {
+        "seconds": 0.2992980480194092,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 87,
+        "passed": true
+      },
+      {
+        "seconds": 0.5210989713668823,
+        "usedModel": false,
+        "reason": "fidelity",
+        "index": 88,
+        "passed": true
+      },
+      {
+        "seconds": 0.30027902126312256,
+        "usedModel": true,
+        "reason": "accepted",
+        "index": 89,
+        "passed": true
+      }
+    ]
+  },
+  "native_rules_pipeline": {
+    "checks": {
+      "failure_recovery": true,
+      "fixture_pipeline": true,
+      "native_paste_accepted": true,
+      "native_redo": true,
+      "native_selected_replacement": true,
+      "native_undo": true,
+      "native_unicode_paste": true,
+      "new_owner_preserved": true,
+      "panel_nonactivating": true,
+      "panel_spaces": true,
+      "restored_binary": true,
+      "restored_text": true,
+      "settings_handler_Privacy_Accessibility": true,
+      "settings_handler_Privacy_ListenEvent": true,
+      "settings_handler_Privacy_Microphone": true
+    },
+    "fixture_cleanup": false,
+    "fixture_model_uses": 0,
+    "fixture_pipeline_ms": [
+      842.6079583332466,
+      747.8035833337344,
+      755.9992916649207
+    ],
+    "indicator_paint_dispatch_ms": 5.578791664447635,
+    "passed": true,
+    "scope": "App-owned text controls and named clipboard. No microphone or cross-application grant is exercised."
+  },
+  "native_cleanup_pipeline_network_denied": {
+    "checks": {
+      "failure_recovery": true,
+      "fixture_pipeline": true,
+      "native_paste_accepted": true,
+      "native_redo": true,
+      "native_selected_replacement": true,
+      "native_undo": true,
+      "native_unicode_paste": true,
+      "new_owner_preserved": true,
+      "panel_nonactivating": true,
+      "panel_spaces": true,
+      "restored_binary": true,
+      "restored_text": true,
+      "settings_handler_Privacy_Accessibility": true,
+      "settings_handler_Privacy_ListenEvent": true,
+      "settings_handler_Privacy_Microphone": true
+    },
+    "fixture_cleanup": true,
+    "fixture_model_uses": 2,
+    "fixture_pipeline_ms": [
+      1533.2161666701722,
+      1349.0426666649,
+      1345.6536666635657
+    ],
+    "indicator_paint_dispatch_ms": 2.869624997401843,
+    "passed": true,
+    "scope": "App-owned text controls and named clipboard. No microphone or cross-application grant is exercised."
+  },
+  "rules_fixture_p50_ms": 755.9992916649207,
+  "cleanup_fixture_p50_ms": 1349.0426666649,
+  "speech_comparison": {
+    "bundled_gpu": {
+      "successful_samples": 8,
+      "unavailable_samples": 0,
+      "p50_seconds": 0.45844822950000097,
+      "mean_wer": 0.015625
+    },
+    "bundled_cpu": {
+      "successful_samples": 8,
+      "unavailable_samples": 0,
+      "p50_seconds": 0.9350492915000004,
+      "mean_wer": 0.015625
+    },
+    "bundled_q5": {
+      "successful_samples": 8,
+      "unavailable_samples": 0,
+      "p50_seconds": 0.3780929165,
+      "mean_wer": 0.015625
+    },
+    "system_analyzer": {
+      "successful_samples": 0,
+      "unavailable_samples": 4,
+      "reason": "Install this language in macOS speech settings, or select a downloaded decoder. Murmur will not download assets automatically."
+    },
+    "system_dictation": {
+      "successful_samples": 0,
+      "unavailable_samples": 4,
+      "reason": "System dictation requires the Speech Recognition permission. The bundled decoder does not need that grant."
+    }
+  },
+  "selected_speech_path": "bundled_q5",
+  "permissions": {
+    "microphone": false,
+    "accessibility": false,
+    "input_monitoring": false
+  },
+  "external_application_tests": "permission-gated; not claimed as passed"
+}

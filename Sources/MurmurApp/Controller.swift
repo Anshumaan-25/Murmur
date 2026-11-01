@@ -27,6 +27,7 @@ import MurmurCore
     var commandMode = false
     var holdSession: UUID?
     var measurements = SessionMeasurements()
+    var shortcutTitle: String { preferences.toggleKey == 2 ? "Control Option D" : "Control Option Space" }
     var modelPassValidated: Bool { CleanupQualification.load()?.eligible == true && SystemCleanup.available }
     func announce(_ text: String) { status?(text); indicator.show(text, phase: sessions.phase) }
     var provider: any SpeechProvider {

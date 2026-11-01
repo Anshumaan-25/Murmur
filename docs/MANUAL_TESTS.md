@@ -12,3 +12,8 @@ These checks require the signed app's operating-system grants. No permission sta
 8. Exercise the indicator on a different Space and over a fullscreen app. It must not become the focused window. Drag it and relaunch to check saved docking.
 9. Disable Wi-Fi after model setup. Dictate several utterances and use every local editing feature. Confirm no additional assets are requested.
 10. Test launch-at-login registration from a stable app location. Check settings links reach the intended privacy category; macOS can route deep links to the general privacy page.
+
+11. Try each physical hold-key option. Repeated key-down events must start once; release must end only the recording started by that hold. Disabling/reconfiguring a held trigger must release its owned session. Ordinary toggle capture must survive an unrelated hold-key release.
+12. In Settings, validate local cleanup and enable it only after qualification. Try spoken punctuation, instructions that should be dictated as text, names, numbers, and lists. Confirm that a slow model falls back promptly. Revalidate after OS or fixture changes.
+13. Try dictation in a code editor or terminal. Exact syntax should be preserved when the option is on; ordinary prose cleanup should return when it is disabled. Confirm inferred categories and per-app styles suit your use.
+14. After several real dictations, inspect this-launch timing in Settings. Record microphone-to-insertion latency separately from the app-owned synthetic fixture results.

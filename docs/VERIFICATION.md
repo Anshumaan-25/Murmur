@@ -1,36 +1,30 @@
-# Verification record
+# Current verification record
 
-Completed on this Apple M5 MacBook Air with 16 GiB RAM, macOS 27.0.1, and Swift 6.4.
+The remaining-work pass was tested on this Apple M5 MacBook Air with 16 GiB RAM, macOS 27.0.1, and Swift 6.4. Earlier delivery measurements remain in VERIFICATION.json; the current results are in REMAINING_VERIFICATION.json.
 
-## Passing automated checks
+## Passing checks
 
-- 89 compiled Swift checks, including 40 text-pipeline fixtures.
-- Actual SQLite save/search/retention and app-style/vocabulary/expansion operations.
-- Named-pasteboard round trips with multiple items and custom binary data, plus protection of a newer clipboard owner.
-- Cancellation of a real child process, stale identities, duration/silence boundaries, terminal return intent, and deterministic editing requests.
-- Release app packaging and strict signature verification of the app and its bundled decoders.
-- Fresh Git checkout: `make test`, `make app`, and `make run` completed successfully. That checkout contains no ignored model files; downloaded resources remain an explicit setup step.
-- Clean-room check passed. Artificial fixtures separately verified that both long textual overlap and a bare hostname cause failure, without printing matched content.
-- The bundled recognizer returned nonempty text with all network operations denied, from a working directory outside the project. This validates local model/resource use rather than requiring a device-wide Wi-Fi change.
+- 186 compiled core checks, including ninety deterministic text fixtures, preference migration, hold-gesture state, app categories, syntax preservation, deadlines, cancellation, numerical fidelity, model guards, SQLite and pasteboard behavior.
+- Native app-owned controls: selected replacement, undo/redo, Unicode paste, all saved clipboard data, newer-owner protection, failure recovery, nonactivating window properties, Space/fullscreen collection flags, and registered handlers for privacy-setting links.
+- The build checkpoint requires the core suite, release application packaging, strict code-signature verification, clean-room scanning, and native-control checks.
+- Optional system-model cleanup passed all ninety expected outputs under a network-denial policy. Its 95th percentile was 0.426 seconds; 77 cases used model output and the others used safe fallback. The qualification record binds the OS, rule revision, fixture fingerprint, and a seven-day age limit. The runtime model deadline is 800 milliseconds.
 
-## Measured performance
+## Speech selection
 
-The initial short-clip comparison used three synthetic Samantha-voice recordings and measured a 0.459-second median including decoder process startup, with 2.1% normalized word error. Five full ten-second PCM inputs measured a 0.481-second median for the development decoder. Two packaged-decoder runs outside the project took 0.507 and 0.448 seconds.
+The fixed synthetic clip set produced the same mean normalized word error, 1.56%, for the original GPU path, CPU path and compact five-bit model. Medians including decoder startup were 0.458, 0.935 and 0.378 seconds respectively. The compact variant is selected, with its source and derived checksums recorded in SPEECH_VARIANT.json.
 
-The first explicitly network-denied packaged run took 4.851 seconds. Three subsequent network-denied runs took 0.459, 0.436 and 0.445 seconds. Cold initialization or cache behavior can therefore matter; these measurements do not establish a universal latency bound.
+Both system speech APIs were attempted and returned explicit unavailable results: the analyzer lacked ready assets, and the older recognizer lacked authorization. Additional model frameworks were not installed within this bounded comparison. SPEECH_COMPARISON.json contains every measured or unavailable sample; unavailable paths have no invented latency or accuracy score.
 
-A local four-bit 1.5B cleanup example took 5.389 seconds cold, so automatic model cleanup stays disabled. A separate requested selected-text edit took 5.163 seconds. General model edits are slower and should be reviewed for fidelity.
+## Complete synthetic-input path
 
-An idle sample with the hub open showed 0.0% CPU and 102,832 KiB resident memory, approximately 100.4 MiB. This is a short observation, not an extended profiler trace. No internet sockets were visible for that app process.
+A ten-second PCM fixture was processed through the packaged recognizer, cleanup, an actual native text view, and the configured 350 ms clipboard-recovery interval. Three rule-only runs measured 0.843, 0.748 and 0.756 seconds, giving a 0.756-second median. Three network-denied runs with optional cleanup measured 1.533, 1.349 and 1.346 seconds, giving a 1.349-second median. Model output was accepted in two of those three runs; the deadline/fidelity path safely fell back in the other.
 
-## Acceptance still requiring OS access
+Native indicator paint-dispatch checks were about 3–6 ms. Hardware microphone start and physical screen composition were outside those measurements. Runtime Settings now records event-to-indicator paint dispatch and release-to-successful-insertion samples in memory, without text or audio.
 
-Microphone, Accessibility and Input Monitoring have not been granted to the signed app. The TextEdit automation returned its documented skipped status. Consequently, microphone capture quality, key-down-to-visible feedback, release-to-insertion latency, physical Fn behavior, fullscreen focus, paste reliability across the requested applications, and native undo have not been validated end to end. Decoder timing must not be presented as release-to-insertion timing.
+## OS-dependent acceptance
 
-Open Murmur → Settings and enable Microphone. In System Settings → Privacy & Security → Accessibility, enable the built Murmur app. Input Monitoring is needed only for holding Fn/globe. The registered toggle works without it. Set Keyboard → Press globe key to Do Nothing if using the hold gesture. Follow MANUAL_TESTS.md after grants; no chat confirmation is needed.
+The signed application still needs Microphone and Accessibility permission. Input Monitoring is needed for physical hold keys; system dictation additionally needs Speech Recognition authorization. The registered toggle remains independent of Input Monitoring.
 
-Privacy settings URL dispatch, launch-at-login registration, and per-device microphone selection are implemented but need the corresponding interactive OS checks. The system speech adapter reported installed English locales while its per-module readiness check rejected the assets; the checksum-verified bundled recognizer is the tested default. Other speech-engine candidates were not benchmarked once this option met the decoder budget within the bounded comparison.
+Live microphone quality, physical key handling, interaction with the system globe action, full-screen Space behavior, exact privacy-pane navigation, launch-at-login registration, and insertion/undo in the requested external applications remain manual or permission-gated checks. Native control tests establish the shared implementation behavior but do not establish external-app compatibility. The integration script reports a skipped result while Accessibility is missing.
 
-No reference application was launched, changed, instrumented, or used as a runtime test target during this build. Its application data was not accessed. The specification bridge remained closed after Phase B, except for the automated clean-room scanner's permitted reads.
-
-Machine-readable results are in VERIFICATION.json and BENCHMARK.json. Models, compiler outputs, downloaded dependency trees, private signing material and synthetic audio files remain ignored by Git.
+Open Murmur → Settings, grant the needed permissions, and follow MANUAL_TESTS.md. Optional cleanup can be enabled after validation qualifies on the current computer; it defaults to rules. No cloud adapter, account, telemetry, or reference-application runtime access is part of the implementation.
