@@ -741,5 +741,11 @@
     "accessibility": false,
     "input_monitoring": false
   },
-  "external_application_tests": "permission-gated; not claimed as passed"
+  "external_application_tests": "permission-gated; not claimed as passed",
+  "fresh_checkout": {
+    "make_test": "passed",
+    "make_app": "passed",
+    "make_run": "passed",
+    "native_checks": true
+  }
 }
