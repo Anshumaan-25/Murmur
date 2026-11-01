@@ -6,6 +6,8 @@ app_path="$PWD/.build/Murmur.app"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 bin_path="$(swift build -c release --show-bin-path)"
 cp "$bin_path/Murmur" "$app_path/Contents/MacOS/Murmur"
+swift scripts/create_icon.swift .build/Murmur.iconset
+iconutil -c icns .build/Murmur.iconset -o "$app_path/Contents/Resources/Murmur.icns"
 cp tests/golden/cases.json "$app_path/Contents/Resources/cleanup-cases.json"
 cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -13,6 +15,7 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>Murmur</string>
 <key>CFBundleIdentifier</key><string>local.murmur.dictation</string>
 <key>CFBundleName</key><string>Murmur</string>
+<key>CFBundleIconFile</key><string>Murmur</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundlePackageType</key><string>APPL</string>

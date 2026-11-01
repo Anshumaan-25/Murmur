@@ -196,6 +196,56 @@ do {
     let tone = try EditingCommand.apply("make it informal", selected: "Regarding the report.")
     expect(tone == "About the report.", "informal does not invoke formal styling")
 } catch { expect(false, "explicit editing operations") }
+// Delivery decisions distinguish missing grants from a changed or unreadable destination.
+let focus = FocusEvidence(pid: 42, editable: true, identifier: "draft", role: "AXTextArea", bounds: [10, 20, 400, 200], text: "Hello", selection: NSRange(location: 5, length: 0))
+func reason(_ current: FocusEvidence, same: Bool = true, trusted: Bool = true, selection: Bool = false) -> DeliveryReason {
+    DeliveryPolicy.decide(original: focus, current: current, sameElement: same, trusted: trusted, requireSelection: selection)
+}
+expect(reason(focus) == .ready, "same destination inserts")
+expect(reason(focus, trusted: false) == .accessibility, "missing Accessibility explains copy fallback")
+var changedFocus = focus; changedFocus.protected = true
+expect(reason(changedFocus, trusted: false) == .protectedField, "protected destination is blocked before fallback")
+changedFocus = focus; changedFocus.pid = 99
+expect(reason(changedFocus) == .targetChanged, "switching apps prevents paste")
+changedFocus = focus; changedFocus.selection = NSRange(location: 0, length: 0)
+expect(reason(changedFocus) == .cursorChanged, "moving cursor prevents stale paste")
+changedFocus = focus; changedFocus.text = "Changed"
+expect(reason(changedFocus) == .textChanged, "editing destination prevents stale paste")
+changedFocus = focus; changedFocus.editable = false
+expect(reason(changedFocus) == .unreadable, "non-text destination stays clipboard-only")
+expect(reason(focus, same: false) == .ready, "stable identity supports recreated accessibility wrappers")
+expect(DeliveryPolicy.decide(original: focus, current: focus, sameElement: false, sameWindow: false, trusted: true) == .targetChanged, "matching identifiers in another window cannot receive paste")
+changedFocus = focus; changedFocus.bounds = [200, 20, 400, 200]
+expect(reason(changedFocus, same: false) == .targetChanged, "identifier alone cannot identify a moved replacement control")
+var geometryFocus = focus; geometryFocus.identifier = nil
+expect(DeliveryPolicy.decide(original: geometryFocus, current: geometryFocus, sameElement: false, trusted: true) == .ready, "matching bounds text and cursor identify recreated field")
+changedFocus = geometryFocus; changedFocus.bounds = [11, 21, 400, 200]
+expect(DeliveryPolicy.decide(original: geometryFocus, current: changedFocus, sameElement: false, trusted: true) == .ready, "subpixel accessibility geometry variation is tolerated")
+changedFocus.bounds = [200, 200, 400, 200]
+expect(DeliveryPolicy.decide(original: geometryFocus, current: changedFocus, sameElement: false, trusted: true) == .targetChanged, "different field geometry prevents paste")
+changedFocus = geometryFocus; changedFocus.selection = nil
+expect(DeliveryPolicy.decide(original: geometryFocus, current: changedFocus, sameElement: false, trusted: true) == .targetChanged, "missing evidence cannot establish a replacement field")
+changedFocus = focus; changedFocus.selection = nil
+expect(reason(changedFocus, selection: true) == .unreadable, "selected-text edits require a readable selection")
+expect(!DeliveryReason.accessibility.explanation.isEmpty && DeliveryReason.shortcutHeld.explanation.contains("release"), "delivery feedback identifies a corrective action")
+// Display smoothing is independent of capture chunk timing and handles silence/invalid input.
+expect(AudioMeter.normalized(0) == 0 && AudioMeter.normalized(.nan) == 0, "meter ignores silence and invalid samples")
+expect(AudioMeter.normalized(.infinity) == 0 && AudioMeter.normalized(-1) == 0, "meter rejects nonfinite and negative RMS")
+expect(AudioMeter.normalized(1) == 1, "meter clamps clipping")
+expect(AudioMeter.normalized(0.02) > AudioMeter.normalized(0.005), "speech dynamics remain ordered")
+var meter = AudioMeter(); let target = AudioMeter.normalized(0.03)
+let onset = meter.advance(rms: 0.03, delta: 1.0 / 60)
+expect(onset > 0 && onset < target, "meter interpolates attack instead of jumping")
+for _ in 0..<30 { _ = meter.advance(rms: 0.03, delta: 1.0 / 60) }
+expect(abs(meter.value - target) < 0.001, "meter follows sustained voice promptly")
+let peak = meter.value; let released = meter.advance(rms: 0, delta: 1.0 / 60)
+expect(released > peak * 0.8 && released < peak, "meter release decays smoothly")
+for _ in 0..<150 { _ = meter.advance(rms: 0, delta: 1.0 / 60) }
+expect(meter.value == 0, "meter returns to rest after silence")
+var sixty = AudioMeter(); var thirty = AudioMeter()
+for _ in 0..<12 { _ = sixty.advance(rms: 0.02, delta: 1.0 / 60) }
+for _ in 0..<6 { _ = thirty.advance(rms: 0.02, delta: 1.0 / 30) }
+expect(abs(sixty.value - thirty.value) < 0.00001, "meter response is independent of refresh rate")
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 

@@ -5,11 +5,11 @@ import MurmurCore
 @MainActor final class DictationController {
     let indicator = Indicator()
     var sessions = SessionGate()
-    var lastLevelUpdate = Date.distantPast
     let microphone = Microphone()
     let hotkeys = Hotkeys()
     let inserter = ClipboardInserter()
     var destination: Destination?
+    var destinationTask: Task<Destination, Error>?
     var preferences = Preferences.load()
     var history: HistoryStore?
     var status: ((String) -> Void)?
@@ -19,8 +19,6 @@ import MurmurCore
     var validationTask: Task<Void, Never>?
     var validationChanged: (() -> Void)?
     var began = Date()
-    var lastSpeech = Date()
-    var hadVoice = false
     var timer: Timer?
     var retentionTimer: Timer?
     var lastText = ""
@@ -64,12 +62,7 @@ import MurmurCore
                 self.holdSession = nil
             }
         }
-        microphone.level = { [weak self] value in DispatchQueue.main.async {
-            guard let self, self.sessions.phase == .listening else { return }
-            if value > 0.008 { self.lastSpeech = Date(); self.hadVoice = true }
-            guard Date().timeIntervalSince(self.lastLevelUpdate) > 0.025 else { return }
-            self.lastLevelUpdate = Date(); self.indicator.level(value)
-        } }
+        indicator.inputLevel = { [weak microphone] in microphone?.meter().rms ?? 0 }
         applyPreferences()
         retentionTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             Task { @MainActor in guard let self else { return }; try? self.history?.prune(self.preferences.retention); self.pruneRecordings() }
@@ -108,14 +101,14 @@ import MurmurCore
         guard validationTask == nil else { announce("Cleanup validation is running. Escape cancels it."); return }
         guard sessions.phase != .inserting && sessions.phase != .listening else { return }
         let triggered = triggerUptime ?? ProcessInfo.processInfo.systemUptime
-        activeTask?.cancel(); sessions.cancel(); commandMode = command
-        let identity = sessions.begin(); began = Date(); lastSpeech = Date(); hadVoice = false
+        activeTask?.cancel(); destinationTask?.cancel(); sessions.cancel(); commandMode = command
+        let identity = sessions.begin(); began = Date()
         announce(command ? "Preparing edit…" : "Starting microphone…")
         measurements.feedback(trigger: triggered, painted: ProcessInfo.processInfo.systemUptime)
         let target = Destination.capture()
         guard !target.protected else { _ = sessions.transition(.failed, session: identity); announce("Protected fields cannot receive dictation."); return }
-        if command && target.selectedText.isEmpty { _ = sessions.transition(.failed, session: identity); announce("Select text before starting an editing command."); return }
-        destination = target; hotkeys.escape(true)
+        if command && target.selectedText.isEmpty && target.element != nil { _ = sessions.transition(.failed, session: identity); announce("Select text before starting an editing command."); return }
+        destination = target; destinationTask = Task { try await Destination.prepared(target) }; hotkeys.escape(true)
         do {
             try microphone.start()
             announce(command ? "Speak your edit…" : "Listening…")
@@ -123,36 +116,42 @@ import MurmurCore
             timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.sessions.phase == .listening else { return }
-                    if RecordingPolicy.shouldFinish(duration: Date().timeIntervalSince(self.began), silence: Date().timeIntervalSince(self.lastSpeech), heardSpeech: self.hadVoice, handsFree: self.preferences.handsFree, silenceLimit: self.preferences.silenceSeconds, maximum: self.preferences.maximumSeconds) { self.finish() }
+                    let meter = self.microphone.meter()
+                    if RecordingPolicy.shouldFinish(duration: Date().timeIntervalSince(self.began), silence: ProcessInfo.processInfo.systemUptime - meter.lastVoice, heardSpeech: meter.lastVoice > 0, handsFree: self.preferences.handsFree, silenceLimit: self.preferences.silenceSeconds, maximum: self.preferences.maximumSeconds) { self.finish() }
                 }
             }
-        } catch { _ = sessions.transition(.failed, session: identity); announce(error.localizedDescription); hotkeys.escape(false) }
+        } catch { destinationTask?.cancel(); _ = sessions.transition(.failed, session: identity); announce(error.localizedDescription); hotkeys.escape(false) }
     }
     func finish() {
         guard sessions.phase == .listening, let identity = sessions.id else { return }
         timer?.invalidate(); timer = nil
         let duration = Date().timeIntervalSince(began)
         let frames = AudioTools.trimmed(microphone.stop()); _ = sessions.transition(.processing, session: identity)
-        let released = Date(); let releasedUptime = ProcessInfo.processInfo.systemUptime; let target = destination; let editing = commandMode; let prefs = preferences
+        let released = Date(); let releasedUptime = ProcessInfo.processInfo.systemUptime; let initialTarget = destination; let pendingDestination = destinationTask; let editing = commandMode; let prefs = preferences
         announce("Recognizing locally…")
         let selected = provider
-        var vocabulary = (try? history?.dictionary()) ?? []
-        if prefs.contextEnabled, let target, !target.protected {
-            let words = (target.selectedText + " " + (target.value ?? "")).split(whereSeparator: { !$0.isLetter })
-            vocabulary += Array(Set(words.filter { $0.count > 2 && $0.first?.isUppercase == true }.map(String.init))).sorted().prefix(24)
-        }
-        let expansions = (try? history?.values(table: "expansions")) ?? [:]
-        let styles = (try? history?.values(table: "app_styles")) ?? [:]
-        let app = target?.bundle ?? ""
-        let context = TextContext(application: app, preserveCode: prefs.preserveCode, style: WritingStyle(rawValue: styles[app] ?? "neutral") ?? .neutral, dictionary: vocabulary, expansions: expansions, selected: prefs.contextEnabled ? target?.selectedText ?? "" : "", surrounding: prefs.contextEnabled ? String((target?.value ?? "").prefix(3000)) : "")
         if prefs.keepAudio && prefs.retention != .never {
             let directory = Preferences.directory.appendingPathComponent("Recordings")
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try? AudioTools.wav(frames).write(to: directory.appendingPathComponent(identity.uuidString + ".wav"), options: .atomic)
         }
         activeTask = Task {
-            var recognized = ""; var prepared = ""
+            var recognized = ""; var prepared = ""; var app = initialTarget?.bundle ?? ""
             do {
+                let target: Destination?
+                if let pendingDestination { target = try await pendingDestination.value } else { target = initialTarget }
+                guard !Task.isCancelled, sessions.accepts(identity) else { return }
+                guard target?.protected != true else { throw MurmurError.protectedTarget }
+                if editing && (target?.selectedText.isEmpty ?? true) { throw MurmurError.unavailable("Select text before starting an editing command.") }
+                var vocabulary = (try? history?.dictionary()) ?? []
+                if prefs.contextEnabled, let target, !target.protected {
+                    let words = (target.selectedText + " " + (target.value ?? "")).split(whereSeparator: { !$0.isLetter })
+                    vocabulary += Array(Set(words.filter { $0.count > 2 && $0.first?.isUppercase == true }.map(String.init))).sorted().prefix(24)
+                }
+                let expansions = (try? history?.values(table: "expansions")) ?? [:]
+                let styles = (try? history?.values(table: "app_styles")) ?? [:]
+                app = target?.bundle ?? ""
+                let context = TextContext(application: app, preserveCode: prefs.preserveCode, style: WritingStyle(rawValue: styles[app] ?? "neutral") ?? .neutral, dictionary: vocabulary, expansions: expansions, selected: prefs.contextEnabled ? target?.selectedText ?? "" : "", surrounding: prefs.contextEnabled ? String((target?.value ?? "").prefix(3000)) : "")
                 guard !frames.isEmpty else { throw MurmurError.empty }
                 let result = try await selected.transcribe(frames, language: prefs.language, vocabulary: vocabulary)
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }
@@ -181,9 +180,9 @@ import MurmurCore
                 if let target { outcome = try await inserter.insert(cleaned, destination: target, delay: prefs.clipboardDelay, pressReturn: pressReturn, requireSelection: editing) }
                 guard sessions.accepts(identity) else { return }
                 if outcome == .inserted { measurements.insertion(released: releasedUptime, finished: ProcessInfo.processInfo.systemUptime) }
-                let record = Utterance(id: identity, application: app, duration: duration, raw: result.text, cleaned: cleaned, inserted: outcome == .inserted ? cleaned : "", outcome: outcome.rawValue, latency: Date().timeIntervalSince(released))
+                let record = Utterance(id: identity, application: app, duration: duration, raw: result.text, cleaned: cleaned, inserted: outcome == .inserted ? cleaned : "", outcome: outcome == .inserted ? outcome.rawValue : "copied: " + inserter.lastReason.rawValue, latency: Date().timeIntervalSince(released))
                 do { try history?.save(record, retention: prefs.retention) } catch { status?("Text delivered; history could not be saved.") }
-                _ = sessions.transition(.idle, session: identity); announce(outcome == .inserted ? "Inserted" : "Copied — check destination"); hotkeys.escape(false); changed?()
+                _ = sessions.transition(.idle, session: identity); announce(outcome == .inserted ? "Inserted" : inserter.lastReason.explanation); hotkeys.escape(false); changed?()
             } catch {
                 guard sessions.accepts(identity) else { return }
                 if !recognized.isEmpty {
@@ -197,7 +196,7 @@ import MurmurCore
     func pasteLast() {
         guard !lastText.isEmpty, sessions.phase != .listening && sessions.phase != .processing && sessions.phase != .inserting else { return }
         let target = Destination.capture(); let text = lastText
-        Task { do { let result = try await inserter.insert(text, destination: target, delay: preferences.clipboardDelay); announce(result == .inserted ? "Inserted previous text" : "Previous text copied") } catch { announce(error.localizedDescription) } }
+        Task { do { let resolved = try await Destination.prepared(target); let result = try await inserter.insert(text, destination: resolved, delay: preferences.clipboardDelay); announce(result == .inserted ? "Inserted previous text" : inserter.lastReason.explanation) } catch { announce(error.localizedDescription) } }
     }
-    func cancel() { validationTask?.cancel(); timer?.invalidate(); timer = nil; activeTask?.cancel(); microphone.cancel(); inserter.finishRestoration(); sessions.cancel(); hotkeys.escape(false); announce("Cancelled") }
+    func cancel() { validationTask?.cancel(); timer?.invalidate(); timer = nil; activeTask?.cancel(); destinationTask?.cancel(); microphone.cancel(); inserter.finishRestoration(); sessions.cancel(); hotkeys.escape(false); announce("Cancelled") }
 }

@@ -17,3 +17,6 @@ These checks require the signed app's operating-system grants. No permission sta
 12. In Settings, validate local cleanup and enable it only after qualification. Try spoken punctuation, instructions that should be dictated as text, names, numbers, and lists. Confirm that a slow model falls back promptly. Revalidate after OS or fixture changes.
 13. Try dictation in a code editor or terminal. Exact syntax should be preserved when the option is on; ordinary prose cleanup should return when it is disabled. Confirm inferred categories and per-app styles suit your use.
 14. After several real dictations, inspect this-launch timing in Settings. Record microphone-to-insertion latency separately from the app-owned synthetic fixture results.
+
+15. With the Mac unlocked and the installed Murmur app running, run `python3 scripts/cross_app_check.py`. It builds disposable native/WebKit destinations, launches the installed app through Launch Services, and checks actual Unicode paste (plus native undo/redo). A focus change or locked session is a skip, never an instruction to bypass the protected target.
+16. If a dictation is copied, read the specific reason in the indicator or its history outcome. Test missing Accessibility, a moved caret, a changed field, and a held Control/Option key independently.
