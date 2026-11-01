@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Speech
 import CoreAudio
+import ApplicationServices
 import ServiceManagement
 import UniformTypeIdentifiers
 import MurmurCore
@@ -256,7 +257,14 @@ final class NavigationControl: NSSegmentedControl {
         scroller.contentView.scroll(to: .zero); scroller.reflectScrolledClipView(scroller.contentView)
         fillWidth(ActionButton("Save settings") { [weak self] in self?.saveSettings() })
     }
-    static func privacy(_ category: String) { if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + category) { NSWorkspace.shared.open(url) } }
+    static func privacy(_ category: String) {
+        if category == "Privacy_Accessibility", !AXIsProcessTrusted() {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
+        if category == "Privacy_ListenEvent", !CGPreflightListenEventAccess() { _ = CGRequestListenEventAccess() }
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + category) { NSWorkspace.shared.open(url) }
+    }
     func toggleStartup() { do { if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() }; render() } catch { statusLabel.stringValue = error.localizedDescription } }
     func chooseSpeechModel() { let panel = NSOpenPanel(); if panel.runModal() == .OK, let path = panel.url?.path { controller.preferences.customSpeechModel = path; controller.applyPreferences(); statusLabel.stringValue = "Local speech model selected" } }
     func chooseDecoder() { let panel = NSOpenPanel(); if panel.runModal() == .OK, let path = panel.url?.path { controller.preferences.customSpeechExecutable = path; controller.applyPreferences(); statusLabel.stringValue = "Local decoder selected" } }
