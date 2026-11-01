@@ -23,15 +23,19 @@ import MurmurCore
     var retentionTimer: Timer?
     var lastText = ""
     var commandMode = false
-    let modelPassValidated = false
+    var holdSession: UUID?
+    var modelPassValidated: Bool { CleanupQualification.load()?.eligible == true && SystemCleanup.available }
     func announce(_ text: String) { status?(text); indicator.show(text, phase: sessions.phase) }
     var provider: any SpeechProvider {
+        if preferences.speechEngine == .systemAnalyzer { return SystemSpeechProvider() }
+        if preferences.speechEngine == .systemLegacy { return LegacySystemSpeechProvider() }
         let resources = Bundle.main.resourceURL!
         let customModel = preferences.customSpeechModel
         let customExecutable = preferences.customSpeechExecutable
         let executable = customExecutable.isEmpty ? resources.appendingPathComponent("speech-decode") : URL(fileURLWithPath: customExecutable)
         let model = customModel.isEmpty ? resources.appendingPathComponent("speech-model.bin") : URL(fileURLWithPath: customModel)
         if FileManager.default.isExecutableFile(atPath: executable.path), FileManager.default.fileExists(atPath: model.path) { return ExecutableSpeechProvider(executable: executable, model: model) }
+        if preferences.speechEngine == .bundled { return UnavailableSpeechProvider("Choose a local model and executable, or switch to Automatic.") }
         return SystemSpeechProvider()
     }
     init() {
@@ -45,7 +49,17 @@ import MurmurCore
         hotkeys.cancel = { [weak self] in self?.cancel() }
         hotkeys.command = { [weak self] in self?.start(command: true) }
         hotkeys.pasteLast = { [weak self] in self?.pasteLast() }
-        hotkeys.hold = { [weak self] down in if down { self?.start() } else { self?.finish() } }
+        hotkeys.hold = { [weak self] down in
+            guard let self else { return }
+            if down {
+                let previous = self.sessions.id
+                self.start()
+                if self.sessions.phase == .listening && self.sessions.id != previous { self.holdSession = self.sessions.id }
+            } else {
+                if let owned = self.holdSession, owned == self.sessions.id { self.finish() }
+                self.holdSession = nil
+            }
+        }
         microphone.level = { [weak self] value in DispatchQueue.main.async {
             guard let self, self.sessions.phase == .listening else { return }
             if value > 0.008 { self.lastSpeech = Date(); self.hadVoice = true }
@@ -67,7 +81,7 @@ import MurmurCore
     }
     func applyPreferences() {
         microphone.inputDevice = preferences.microphone
-        hotkeys.enableHold(preferences.holdEnabled)
+        hotkeys.enableHold(preferences.holdEnabled, key: preferences.holdKey)
         hotkeys.configure(keyCode: preferences.toggleKey)
         UserDefaults.standard.set(preferences.holdEnabled, forKey: "holdEnabled")
         do { try preferences.save(); try history?.prune(preferences.retention); pruneRecordings() } catch { announce("Could not save local preferences.") }
@@ -108,7 +122,7 @@ import MurmurCore
         let expansions = (try? history?.values(table: "expansions")) ?? [:]
         let styles = (try? history?.values(table: "app_styles")) ?? [:]
         let app = target?.bundle ?? ""
-        let context = TextContext(application: app, style: WritingStyle(rawValue: styles[app] ?? "neutral") ?? .neutral, dictionary: vocabulary, expansions: expansions, selected: prefs.contextEnabled ? target?.selectedText ?? "" : "", surrounding: prefs.contextEnabled ? String((target?.value ?? "").prefix(3000)) : "")
+        let context = TextContext(application: app, preserveCode: prefs.preserveCode, style: WritingStyle(rawValue: styles[app] ?? "neutral") ?? .neutral, dictionary: vocabulary, expansions: expansions, selected: prefs.contextEnabled ? target?.selectedText ?? "" : "", surrounding: prefs.contextEnabled ? String((target?.value ?? "").prefix(3000)) : "")
         if prefs.keepAudio && prefs.retention != .never {
             let directory = Preferences.directory.appendingPathComponent("Recordings")
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -132,6 +146,7 @@ import MurmurCore
                     announce("Editing locally…")
                     cleaned = try await CommandRewrite(executable: available ? executable : nil, model: available ? model : nil).rewrite(instruction: raw, selected: target?.selectedText ?? "")
                 }
+                else if prefs.useModel && modelPassValidated { cleaned = try await SystemCleanup().clean(raw, context: context) }
                 else { cleaned = RuleCleanup().apply(raw, context: context) }
                 guard !cleaned.isEmpty else { throw MurmurError.empty }
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }

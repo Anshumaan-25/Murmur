@@ -3,13 +3,15 @@ import Foundation
 public enum WritingStyle: String, Codable, CaseIterable, Sendable { case neutral, formal, casual }
 public struct TextContext: Sendable {
     public var application: String
+    public var category: ApplicationCategory
+    public var preserveCode: Bool
     public var style: WritingStyle
     public var dictionary: [String]
     public var expansions: [String: String]
     public var selected: String
     public var surrounding: String
-    public init(application: String = "", style: WritingStyle = .neutral, dictionary: [String] = [], expansions: [String: String] = [:], selected: String = "", surrounding: String = "") {
-        self.application = application; self.style = style; self.dictionary = dictionary; self.expansions = expansions; self.selected = selected; self.surrounding = surrounding
+    public init(application: String = "", category: ApplicationCategory? = nil, preserveCode: Bool = true, style: WritingStyle = .neutral, dictionary: [String] = [], expansions: [String: String] = [:], selected: String = "", surrounding: String = "") {
+        self.application = application; self.category = category ?? ApplicationCategory.classify(bundle: application); self.preserveCode = preserveCode; self.style = style; self.dictionary = dictionary; self.expansions = expansions; self.selected = selected; self.surrounding = surrounding
     }
 }
 public protocol CleanupProvider: Sendable { func clean(_ raw: String, context: TextContext) async throws -> String }
@@ -20,6 +22,10 @@ public struct RuleCleanup: CleanupProvider {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let trigger = text.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines))
         if let expansion = context.expansions.first(where: { $0.key.lowercased() == trigger })?.value { return expansion }
+        if context.preserveCode && context.category.preservesSyntax {
+            for term in context.dictionary where !term.isEmpty { text = replace(text, "\\b" + NSRegularExpression.escapedPattern(for: term) + "\\b", NSRegularExpression.escapedTemplate(for: term)) }
+            return text
+        }
         text = replace(text, #"\b(?:um+|uh+|erm)\b[,\s]*"#, "")
         text = replace(text, #"^so[,\s]+"#, "")
         text = replace(text, #"\b([\p{L}\p{N}:]+)[,\s]+(?:actually(?:\s+make\s+that)?|no\s+make\s+that|sorry\s+make\s+that)[,\s]+([\p{L}\p{N}:]+)"#, "$2")

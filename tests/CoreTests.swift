@@ -119,6 +119,44 @@ let usage = UsageStatistics([Utterance(application: "test", duration: 6, raw: ""
 expect(usage.words == 4, "statistics count all words")
 expect(abs(usage.wordsPerMinute - 20) < 0.01, "statistics use recording duration")
 expect(usage.streak == 2, "statistics count consecutive local days")
+
+var hold = HoldGesture()
+expect(hold.change(to: true) == true, "hold starts once")
+expect(hold.change(to: true) == nil, "hold key repeat ignored")
+expect(hold.change(to: false) == false, "hold releases once")
+expect(hold.change(to: false) == nil, "orphan hold release ignored")
+expect(!hold.reset(), "idle hold reset")
+_ = hold.change(to: true); expect(hold.reset(), "reconfiguration releases a held gesture")
+expect(Set(HoldKey.allCases.map(\.code)).count == HoldKey.allCases.count, "physical hold keys are distinct")
+do {
+    let oldSettings = Data(#"{"language":"en-GB","clipboardDelay":0.7,"holdEnabled":false}"#.utf8)
+    let loaded = try JSONDecoder().decode(Preferences.self, from: oldSettings)
+    expect(loaded.language == "en-GB" && loaded.clipboardDelay == 0.7 && !loaded.holdEnabled, "old settings preserved during migration")
+    expect(loaded.holdKey == .globe && loaded.speechEngine == .automatic && loaded.preserveCode, "new preferences default safely")
+    let invalid = try JSONDecoder().decode(Preferences.self, from: Data(#"{"language":"en-IN","holdKey":"futureKey","maximumSeconds":-1}"#.utf8))
+    expect(invalid.language == "en-IN" && invalid.holdKey == .globe && invalid.maximumSeconds == 5, "unknown key does not reset other preferences")
+} catch { expect(false, "preference migration decodes") }
+expect(ApplicationCategory.classify(bundle: "com.apple.Terminal") == .terminal, "terminal category")
+expect(ApplicationCategory.classify(bundle: "com.microsoft.VSCode") == .code, "editor category")
+expect(ApplicationCategory.classify(bundle: "com.apple.mail") == .email, "email category")
+expect(ApplicationCategory.classify(bundle: "com.apple.Safari") == .browser, "browser category")
+expect(ApplicationCategory.classify(bundle: "unknown") == .other, "unknown category is conservative")
+expect(ApplicationCategory.classify(bundle: "unknown", declaredCategory: "public.app-category.developer-tools") == .code, "declared category fallback")
+expect(RuleCleanup().apply("git status", context: TextContext(application: "com.apple.Terminal")) == "git status", "terminal syntax preserved")
+expect(RuleCleanup().apply("let value = 3.2", context: TextContext(application: "com.microsoft.VSCode")) == "let value = 3.2", "code syntax preserved")
+expect(RuleCleanup().apply("hello there", context: TextContext(application: "com.apple.Terminal", preserveCode: false)) == "Hello there.", "code preservation can be disabled")
+expect(!CleanupFidelity.accepts("Hello.", baseline: "Hello world.", dictionary: []), "model cannot drop content words")
+expect(!CleanupFidelity.accepts("Here is a joke.", baseline: "Tell me a joke.", dictionary: []), "model cannot answer dictation")
+expect(CleanupFidelity.accepts("Hello, world.", baseline: "Hello world.", dictionary: []), "model can adjust punctuation")
+expect(!CleanupFidelity.accepts("Try acme.", baseline: "Try Acme.", dictionary: ["Acme"]), "model must preserve dictionary spelling")
+let timerBegan = Date()
+do { _ = try await Deadline.run(seconds: 0.03) { try await Task.sleep(nanoseconds: 2_000_000_000); return "late" }; expect(false, "deadline rejects slow work") }
+catch { expect(Date().timeIntervalSince(timerBegan) < 0.5, "deadline returns promptly") }
+do { let answer = try await Deadline.run(seconds: 1) { 42 }; expect(answer == 42, "deadline returns fast work") }
+catch { expect(false, "deadline fast work succeeds") }
+let deadlineTask = Task { try await Deadline.run(seconds: 10) { try await Task.sleep(nanoseconds: 10_000_000_000); return 7 } }
+deadlineTask.cancel()
+do { _ = try await deadlineTask.value; expect(false, "deadline propagates caller cancellation") } catch { expect(true, "deadline propagates caller cancellation") }
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 

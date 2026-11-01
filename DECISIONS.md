@@ -16,3 +16,6 @@
 - D14: The first downloaded-model speech comparison measured a 0.459 second median including process startup, with approximately 2.1% normalized word error on three synthetic clips. These are not microphone-to-insertion measurements or a full ten-second acceptance claim.
 - D15: The four-bit instruction model produced a valid synthetic correction but took 5.389 seconds cold, beyond the allowed editing budget. Keep the LLM disabled; retain the guarded adapter and model for future optimization. Deterministic editing is the shipped default.
 - D16: Prefer ordinary paste for selected-text replacements so the target app owns undo. Direct Accessibility writes are not enabled without evidence of reliable undo behavior in that target.
+- D17: Support five physical hold keys and release only the recording started by that hold. Repeated key events and tap reconfiguration must not end an unrelated toggle session.
+- D18: Classify destination apps locally and preserve editor/terminal syntax by default. Users can disable that behavior. Decode settings with per-field defaults so an upgrade does not discard existing preferences.
+- D19: Optional cleanup may adjust punctuation and casing only after deterministic editing. Every content word, number and configured spelling must survive. A deadline race returns the rule result promptly even if an inference task is slow.

@@ -51,10 +51,12 @@ public struct ExecutableSpeechProvider: SpeechProvider {
     public let name = "Downloaded speech"
     public var executable: URL
     public var model: URL
-    public init(executable: URL, model: URL) { self.executable = executable; self.model = model }
+    public var useGPU: Bool
+    public init(executable: URL, model: URL, useGPU: Bool = true) { self.executable = executable; self.model = model; self.useGPU = useGPU }
     public func transcribe(_ audio: [AudioFrame], language: String, vocabulary: [String]) async throws -> SpeechResult {
         let start = Date()
         var arguments = ["-m", model.path, "-f", "-", "-nt", "-np", "-otxt", "-of", "-", "-l", language.hasPrefix("en") ? "en" : language]
+        if !useGPU { arguments.append("-ng") }
         if !vocabulary.isEmpty { arguments += ["--prompt", vocabulary.joined(separator: ", ")] }
         let output = try await LocalProcess.run(executable: executable, arguments: arguments, input: AudioTools.wav(audio), timeout: 60)
         let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -101,4 +103,52 @@ public enum LocalProcess {
             }
         }, onCancel: { control.cancel() })
     }
+}
+
+public struct LegacySystemSpeechProvider: SpeechProvider {
+    public let name = "System dictation (on-device)"
+    public init() {}
+    public func transcribe(_ audio: [AudioFrame], language: String, vocabulary: [String]) async throws -> SpeechResult {
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized else { throw MurmurError.unavailable("System dictation requires the Speech Recognition permission. The bundled decoder does not need that grant.") }
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)), recognizer.supportsOnDeviceRecognition else { throw MurmurError.unavailable("On-device system dictation is unavailable for this language.") }
+        let start = Date(); let buffer = try AudioTools.buffer(audio.flatMap(\.samples))
+        return try await Deadline.run(seconds: 30) {
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.requiresOnDeviceRecognition = true; request.shouldReportPartialResults = false; request.contextualStrings = vocabulary
+            let bridge = RecognitionBridge()
+            return try await withTaskCancellationHandler(operation: {
+                try await withCheckedThrowingContinuation { continuation in
+                    bridge.install(continuation)
+                    let task = recognizer.recognitionTask(with: request) { result, error in
+                        if let error { bridge.complete(.failure(error)) }
+                        else if let result, result.isFinal { bridge.complete(.success(SpeechResult(text: result.bestTranscription.formattedString, seconds: Date().timeIntervalSince(start)))) }
+                    }
+                    bridge.setTask(task); request.append(buffer); request.endAudio()
+                }
+            }, onCancel: { bridge.complete(.failure(CancellationError())) })
+        }
+    }
+}
+private final class RecognitionBridge: @unchecked Sendable {
+    let lock = NSLock()
+    var continuation: CheckedContinuation<SpeechResult, Error>?
+    var task: SFSpeechRecognitionTask?
+    var completed = false
+    var result: Result<SpeechResult, Error>?
+    func install(_ waiting: CheckedContinuation<SpeechResult, Error>) {
+        lock.lock(); if let result { lock.unlock(); waiting.resume(with: result) } else { continuation = waiting; lock.unlock() }
+    }
+    func setTask(_ task: SFSpeechRecognitionTask) { lock.lock(); let stop = completed; if !stop { self.task = task }; lock.unlock(); if stop { task.cancel() } }
+    func complete(_ value: Result<SpeechResult, Error>) {
+        lock.lock(); guard !completed else { lock.unlock(); return }; completed = true
+        result = value; let waiting = continuation; continuation = nil; let task = task; self.task = nil; lock.unlock()
+        task?.cancel(); waiting?.resume(with: value)
+    }
+}
+
+public struct UnavailableSpeechProvider: SpeechProvider {
+    public let name = "Unavailable local decoder"
+    public let reason: String
+    public init(_ reason: String) { self.reason = reason }
+    public func transcribe(_ audio: [AudioFrame], language: String, vocabulary: [String]) async throws -> SpeechResult { throw MurmurError.unavailable(reason) }
 }

@@ -59,3 +59,7 @@ The final core gate currently passes 89 checks. The bundled recognizer also succ
 ## Final delivery
 
 M1–M10 implementation is committed. A fresh checkout passed the test, app-build, and launch commands. The main signed app is available in the project build directory, with both verified models and dependency license notices bundled. It was relaunched after stopping only the temporary checkout instance. Detailed measured results, known limits, and the exact remaining OS checks are recorded in VERIFICATION.md and VERIFICATION.json. No permission prompts need a chat response; macOS grants remain the user's direct action.
+
+## Remaining-work pass: input and context
+
+Added configurable physical hold keys, deduplicated press/release handling, hold-session ownership, destination categories, syntax preservation, and backwards-compatible settings. Added local system-dictation and on-device cleanup adapters plus a cancellable deadline primitive. The new gate passes 115 checks. Automatic model cleanup still requires qualification before it can be selected.

@@ -57,6 +57,8 @@ final class NavigationControl: NSSegmentedControl {
     var languagePicker = NSPopUpButton()
     var retentionPicker = NSPopUpButton()
     var hotkeyPicker = NSPopUpButton()
+    var holdPicker = NSPopUpButton()
+    var enginePicker = NSPopUpButton()
     var checks: [String: NSButton] = [:]
     var fields: [String: NSTextField] = [:]
     init(controller: DictationController) {
@@ -221,7 +223,11 @@ final class NavigationControl: NSSegmentedControl {
         body.addArrangedSubview(row([label("History"), retentionPicker]))
         hotkeyPicker = NSPopUpButton(); hotkeyPicker.addItems(withTitles: ["Control Option Space", "Control Option D"]); hotkeyPicker.selectItem(at: prefs.toggleKey == 2 ? 1 : 0)
         body.addArrangedSubview(row([label("Toggle shortcut"), hotkeyPicker]))
-        for (key, title, value) in [("hold", "Hold the globe/function key to talk", prefs.holdEnabled), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("return", "Allow spoken ‘press enter’ at the end", prefs.spokenReturn), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
+        holdPicker = NSPopUpButton(); holdPicker.addItems(withTitles: HoldKey.allCases.map(\.title)); holdPicker.selectItem(at: HoldKey.allCases.firstIndex(of: prefs.holdKey) ?? 0)
+        body.addArrangedSubview(row([label("Hold-to-talk key"), holdPicker]))
+        enginePicker = NSPopUpButton(); enginePicker.addItems(withTitles: SpeechEngine.allCases.map(\.title)); enginePicker.selectItem(at: SpeechEngine.allCases.firstIndex(of: prefs.speechEngine) ?? 0)
+        body.addArrangedSubview(row([label("Speech engine"), enginePicker]))
+        for (key, title, value) in [("hold", "Enable the selected hold-to-talk key", prefs.holdEnabled), ("code", "Preserve exact syntax in code editors and terminals", prefs.preserveCode), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("return", "Allow spoken ‘press enter’ at the end", prefs.spokenReturn), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
             let check = NSButton(checkboxWithTitle: title, target: nil, action: nil); check.state = value ? .on : .off; checks[key] = check; body.addArrangedSubview(check)
         }
         body.addArrangedSubview(label("For the hold shortcut, set Keyboard → Press globe key → Do Nothing to avoid the emoji picker. Editing: Control Option R. Paste previous: Control Option V."))
@@ -231,7 +237,7 @@ final class NavigationControl: NSSegmentedControl {
         body.addArrangedSubview(label("AI cleanup stays disabled: the downloaded model did not meet the response-time gate. Rule cleanup is active."))
         body.addArrangedSubview(row([ActionButton("Start at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off")") { [weak self] in self?.toggleStartup() }, ActionButton("Choose speech model…") { [weak self] in self?.chooseSpeechModel() }, ActionButton("Choose decoder…") { [weak self] in self?.chooseDecoder() }]))
         let scroller = scroll(body); fillWidth(scroller); scroller.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
-        body.frame.size = NSSize(width: 820, height: 760)
+        body.frame.size = NSSize(width: 820, height: 920)
         scroller.contentView.scroll(to: .zero); scroller.reflectScrolledClipView(scroller.contentView)
         fillWidth(ActionButton("Save settings") { [weak self] in self?.saveSettings() })
     }
@@ -243,7 +249,7 @@ final class NavigationControl: NSSegmentedControl {
         var p = controller.preferences
         p.microphone = micIDs[max(0, micPicker.indexOfSelectedItem)]; p.language = ["en-US", "en-IN", "en-GB"][max(0, languagePicker.indexOfSelectedItem)]
         p.retention = Retention.allCases[max(0, retentionPicker.indexOfSelectedItem)]; p.toggleKey = hotkeyPicker.indexOfSelectedItem == 1 ? 2 : 49
-        p.holdEnabled = checks["hold"]?.state == .on; p.handsFree = checks["hands"]?.state == .on; p.contextEnabled = checks["context"]?.state == .on; p.spokenReturn = checks["return"]?.state == .on; p.keepAudio = checks["audio"]?.state == .on
+        p.holdEnabled = checks["hold"]?.state == .on; p.holdKey = HoldKey.allCases[max(0, holdPicker.indexOfSelectedItem)]; p.speechEngine = SpeechEngine.allCases[max(0, enginePicker.indexOfSelectedItem)]; p.preserveCode = checks["code"]?.state == .on; p.handsFree = checks["hands"]?.state == .on; p.contextEnabled = checks["context"]?.state == .on; p.spokenReturn = checks["return"]?.state == .on; p.keepAudio = checks["audio"]?.state == .on
         p.silenceSeconds = max(0.5, min(10, fields["silence"]?.doubleValue ?? 1.5)); p.maximumSeconds = max(5, min(600, fields["maximum"]?.doubleValue ?? 120)); p.clipboardDelay = max(0.1, min(2, fields["clipboard"]?.doubleValue ?? 0.35))
         controller.preferences = p; controller.applyPreferences(); statusLabel.stringValue = "Settings saved"
     }

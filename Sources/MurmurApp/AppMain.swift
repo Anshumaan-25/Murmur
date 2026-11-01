@@ -34,7 +34,7 @@ import MurmurCore
             }
         }
     }
-    func applicationDidBecomeActive(_ notification: Notification) { controller.hotkeys.enableHold(controller.preferences.holdEnabled) }
+    func applicationDidBecomeActive(_ notification: Notification) { controller.hotkeys.enableHold(controller.preferences.holdEnabled, key: controller.preferences.holdKey) }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showHub(); return true }
     @objc func showHub() { hub?.show() }
     @objc func dictate() { controller.toggle() }
