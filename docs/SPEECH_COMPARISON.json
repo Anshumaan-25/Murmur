@@ -1,0 +1,388 @@
+{
+  "summary": {
+    "bundled_gpu": {
+      "successful_samples": 8,
+      "unavailable_samples": 0,
+      "p50_seconds": 0.45844822950000097,
+      "mean_wer": 0.015625
+    },
+    "bundled_cpu": {
+      "successful_samples": 8,
+      "unavailable_samples": 0,
+      "p50_seconds": 0.9350492915000004,
+      "mean_wer": 0.015625
+    },
+    "bundled_q5": {
+      "successful_samples": 8,
+      "unavailable_samples": 0,
+      "p50_seconds": 0.3780929165,
+      "mean_wer": 0.015625
+    },
+    "system_analyzer": {
+      "successful_samples": 0,
+      "unavailable_samples": 4,
+      "reason": "Install this language in macOS speech settings, or select a downloaded decoder. Murmur will not download assets automatically."
+    },
+    "system_dictation": {
+      "successful_samples": 0,
+      "unavailable_samples": 4,
+      "reason": "System dictation requires the Speech Recognition permission. The bundled decoder does not need that grant."
+    }
+  },
+  "samples": [
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4672520160675049,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "candidate": "bundled_gpu",
+      "clip": "meeting",
+      "attempt": 0,
+      "wall_seconds": 3.334477542,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.42226600646972656,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "candidate": "bundled_gpu",
+      "clip": "meeting",
+      "attempt": 1,
+      "wall_seconds": 0.45422179200000024,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.8717079162597656,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "candidate": "bundled_cpu",
+      "clip": "meeting",
+      "attempt": 0,
+      "wall_seconds": 0.8998080000000002,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.8796080350875854,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "candidate": "bundled_cpu",
+      "clip": "meeting",
+      "attempt": 1,
+      "wall_seconds": 0.9171228329999987,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.6204619407653809,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "candidate": "bundled_q5",
+      "clip": "meeting",
+      "attempt": 0,
+      "wall_seconds": 0.6493293749999989,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 4.572375,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.31330204010009766,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to the design team before 4 tomorrow afternoon.",
+      "candidate": "bundled_q5",
+      "clip": "meeting",
+      "attempt": 1,
+      "wall_seconds": 0.3504886249999988,
+      "normalized_wer": 0.0
+    },
+    {
+      "reason": "Install this language in macOS speech settings, or select a downloaded decoder. Murmur will not download assets automatically.",
+      "status": "unavailable",
+      "candidate": "system_analyzer",
+      "clip": "meeting",
+      "attempt": 0,
+      "wall_seconds": 0.0827909999999985
+    },
+    {
+      "reason": "System dictation requires the Speech Recognition permission. The bundled decoder does not need that grant.",
+      "status": "unavailable",
+      "candidate": "system_dictation",
+      "clip": "meeting",
+      "attempt": 0,
+      "wall_seconds": 0.03332450000000087
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4167979955673218,
+      "status": "ok",
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "candidate": "bundled_gpu",
+      "clip": "numbers",
+      "attempt": 0,
+      "wall_seconds": 0.45373745800000087,
+      "normalized_wer": 0.0625
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.42418694496154785,
+      "status": "ok",
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "candidate": "bundled_gpu",
+      "clip": "numbers",
+      "attempt": 1,
+      "wall_seconds": 0.4585891670000013,
+      "normalized_wer": 0.0625
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.8964329957962036,
+      "status": "ok",
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "candidate": "bundled_cpu",
+      "clip": "numbers",
+      "attempt": 0,
+      "wall_seconds": 0.9332921250000012,
+      "normalized_wer": 0.0625
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.8927639722824097,
+      "status": "ok",
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "candidate": "bundled_cpu",
+      "clip": "numbers",
+      "attempt": 1,
+      "wall_seconds": 0.907644792000001,
+      "normalized_wer": 0.0625
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.34429991245269775,
+      "status": "ok",
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "candidate": "bundled_q5",
+      "clip": "numbers",
+      "attempt": 0,
+      "wall_seconds": 0.37487774999999957,
+      "normalized_wer": 0.0625
+    },
+    {
+      "audio_seconds": 6.1305625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.33569204807281494,
+      "status": "ok",
+      "text": "The delivery contains 23 boxes and costs $100. We should meet on Tuesday at 9.",
+      "candidate": "bundled_q5",
+      "clip": "numbers",
+      "attempt": 1,
+      "wall_seconds": 0.3672241669999998,
+      "normalized_wer": 0.0625
+    },
+    {
+      "reason": "Install this language in macOS speech settings, or select a downloaded decoder. Murmur will not download assets automatically.",
+      "status": "unavailable",
+      "candidate": "system_analyzer",
+      "clip": "numbers",
+      "attempt": 0,
+      "wall_seconds": 0.08331141699999733
+    },
+    {
+      "reason": "System dictation requires the Speech Recognition permission. The bundled decoder does not need that grant.",
+      "status": "unavailable",
+      "candidate": "system_dictation",
+      "clip": "numbers",
+      "attempt": 0,
+      "wall_seconds": 0.03325987499999883
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4195060729980469,
+      "status": "ok",
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "candidate": "bundled_gpu",
+      "clip": "correction",
+      "attempt": 0,
+      "wall_seconds": 0.4529882080000007,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.42992091178894043,
+      "status": "ok",
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "candidate": "bundled_gpu",
+      "clip": "correction",
+      "attempt": 1,
+      "wall_seconds": 0.45830729200000064,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.9166439771652222,
+      "status": "ok",
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "candidate": "bundled_cpu",
+      "clip": "correction",
+      "attempt": 0,
+      "wall_seconds": 0.9368064579999995,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.9172298908233643,
+      "status": "ok",
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "candidate": "bundled_cpu",
+      "clip": "correction",
+      "attempt": 1,
+      "wall_seconds": 0.9489064999999997,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.3448830842971802,
+      "status": "ok",
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "candidate": "bundled_q5",
+      "clip": "correction",
+      "attempt": 0,
+      "wall_seconds": 0.3813080830000004,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 5.1855625,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.3468821048736572,
+      "status": "ok",
+      "text": "I think we should meet at 3. Actually make that 4. Please bring the quarterly report.",
+      "candidate": "bundled_q5",
+      "clip": "correction",
+      "attempt": 1,
+      "wall_seconds": 0.3742338750000016,
+      "normalized_wer": 0.0
+    },
+    {
+      "reason": "Install this language in macOS speech settings, or select a downloaded decoder. Murmur will not download assets automatically.",
+      "status": "unavailable",
+      "candidate": "system_analyzer",
+      "clip": "correction",
+      "attempt": 0,
+      "wall_seconds": 0.08340854100000072
+    },
+    {
+      "reason": "System dictation requires the Speech Recognition permission. The bundled decoder does not need that grant.",
+      "status": "unavailable",
+      "candidate": "system_dictation",
+      "clip": "correction",
+      "attempt": 0,
+      "wall_seconds": 0.03330570800000032
+    },
+    {
+      "audio_seconds": 10,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4387589693069458,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+      "candidate": "bundled_gpu",
+      "clip": "ten-seconds",
+      "attempt": 0,
+      "wall_seconds": 0.46682091599999964,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 10,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.4415609836578369,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+      "candidate": "bundled_gpu",
+      "clip": "ten-seconds",
+      "attempt": 1,
+      "wall_seconds": 0.47889191699999856,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 10,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.955781102180481,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+      "candidate": "bundled_cpu",
+      "clip": "ten-seconds",
+      "attempt": 0,
+      "wall_seconds": 0.9876162079999986,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 10,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.9576029777526855,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+      "candidate": "bundled_cpu",
+      "clip": "ten-seconds",
+      "attempt": 1,
+      "wall_seconds": 0.9915295830000019,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 10,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.3606090545654297,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+      "candidate": "bundled_q5",
+      "clip": "ten-seconds",
+      "attempt": 0,
+      "wall_seconds": 0.39204658299999906,
+      "normalized_wer": 0.0
+    },
+    {
+      "audio_seconds": 10,
+      "provider": "Downloaded speech",
+      "recognition_seconds": 0.3567180633544922,
+      "status": "ok",
+      "text": "Please send the revised meeting notes to our design team before 4 tomorrow afternoon and include the updated budget and schedule.",
+      "candidate": "bundled_q5",
+      "clip": "ten-seconds",
+      "attempt": 1,
+      "wall_seconds": 0.3909348750000028,
+      "normalized_wer": 0.0
+    },
+    {
+      "reason": "Install this language in macOS speech settings, or select a downloaded decoder. Murmur will not download assets automatically.",
+      "status": "unavailable",
+      "candidate": "system_analyzer",
+      "clip": "ten-seconds",
+      "attempt": 0,
+      "wall_seconds": 0.08860137499999965
+    },
+    {
+      "reason": "System dictation requires the Speech Recognition permission. The bundled decoder does not need that grant.",
+      "status": "unavailable",
+      "candidate": "system_dictation",
+      "clip": "ten-seconds",
+      "attempt": 0,
+      "wall_seconds": 0.03246916699999858
+    }
+  ],
+  "selection": "bundled_q5",
+  "limits": "Synthetic fixed clips; process startup included. Microphone and destination insertion are outside this comparison. Additional model frameworks are not installed, so they are not reported as measured."
+}

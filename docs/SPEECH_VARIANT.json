@@ -1,0 +1,9 @@
+{
+  "source": "ggml-small.en.bin",
+  "source_sha256": "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
+  "output": "ggml-small.en-q5_1.bin",
+  "output_sha256": "dff705e279bda34c3064c6e69657c71d476787a51c318f26028dad223445f062",
+  "size": 190098681,
+  "quantization": "q5_1",
+  "engine_revision": "482279b8a18855ba741d7b88c30fcb3874691f59"
+}

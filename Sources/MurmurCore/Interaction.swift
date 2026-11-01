@@ -25,11 +25,11 @@ public enum ApplicationCategory: String, Codable, CaseIterable, Sendable {
     public static func classify(bundle: String, declaredCategory: String = "") -> ApplicationCategory {
         let identity = bundle.lowercased()
         if ["terminal", "iterm", "alacritty", "kitty", "ghostty", "wezterm"].contains(where: identity.contains) { return .terminal }
-        if ["vscode", "vscodium", "xcode", "sublime", "zed", "jetbrains"].contains(where: identity.contains) { return .code }
+        if ["vscode", "vscodium", "xcode", "sublime", "jetbrains"].contains(where: identity.contains) || identity.hasSuffix(".zed") { return .code }
         if ["outlook", "superhuman", "airmail"].contains(where: identity.contains) || identity.hasSuffix(".mail") { return .email }
         if ["slack", "discord", "telegram", "whatsapp"].contains(where: identity.contains) || identity.hasSuffix(".ichat") { return .chat }
-        if ["safari", "chrome", "firefox", "brave", "arc"].contains(where: identity.contains) { return .browser }
-        if ["textedit", "notes", "pages", "word", "obsidian", "notion"].contains(where: identity.contains) { return .document }
+        if ["safari", "chrome", "firefox", "brave"].contains(where: identity.contains) { return .browser }
+        if ["textedit", "notes", "pages", "obsidian", "notion"].contains(where: identity.contains) || identity.hasSuffix(".word") { return .document }
         if declaredCategory.lowercased().contains("developer-tools") { return .code }
         return .other
     }

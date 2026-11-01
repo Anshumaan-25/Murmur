@@ -19,6 +19,10 @@ if [ "$(git -C .local/vendor/speech-engine rev-parse HEAD)" != "$speech_revision
 fi
 "$build_tool" -S .local/vendor/speech-engine -B .local/speech-build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF
 "$build_tool" --build .local/speech-build --target whisper-cli -j 6
+if [ -f models/ggml-small.en.bin ]; then
+  "$build_tool" --build .local/speech-build --target whisper-quantize -j 6
+  python3 scripts/quantize_speech.py
+fi
 if [ "${MURMUR_BUILD_EDITING:-0}" = 1 ]; then
   if [ ! -d .local/vendor/text-engine ]; then
     : "${MURMUR_TEXT_SOURCE:?Set this to the upstream text engine source URL or a local source directory}"

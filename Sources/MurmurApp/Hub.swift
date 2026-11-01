@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Speech
 import CoreAudio
 import ServiceManagement
 import UniformTypeIdentifiers
@@ -95,6 +96,7 @@ final class NavigationControl: NSSegmentedControl {
         controller.status = { [weak self] message in self?.statusLabel.stringValue = message }
         controller.received = { [weak self] text in self?.details.string = text }
         controller.changed = { [weak self] in self?.reloadHistory() }
+        controller.validationChanged = { [weak self] in if self?.page == 4 { self?.render() } }
     }
     func dictateFromHub() {
         window?.orderOut(nil)
@@ -210,6 +212,9 @@ final class NavigationControl: NSSegmentedControl {
         fillWidth(label("Make room for your voice", size: 22, weight: .semibold))
         let body = column(14); checks = [:]; fields = [:]
         let prefs = controller.preferences
+        let feedback = SessionMeasurements.median(controller.measurements.feedbackMilliseconds).map { String(format: "%.0f ms", $0) } ?? "not measured"
+        let insertion = SessionMeasurements.median(controller.measurements.insertionMilliseconds).map { String(format: "%.0f ms", $0) } ?? "not measured"
+        body.addArrangedSubview(label("This launch · indicator paint dispatch: \(feedback) · release to inserted text: \(insertion)."))
         let permissionText = "Microphone \(AVCaptureDevice.authorizationStatus(for: .audio) == .authorized ? "✓" : "needs access") · Accessibility \(AXIsProcessTrusted() ? "✓" : "needs access") · Input Monitoring \(CGPreflightListenEventAccess() ? "✓" : "optional")"
         body.addArrangedSubview(label(permissionText))
         body.addArrangedSubview(row([ActionButton("Enable microphone") { AVCaptureDevice.requestAccess(for: .audio) { _ in } }, ActionButton("Accessibility…") { Self.privacy("Privacy_Accessibility") }, ActionButton("Input Monitoring…") { Self.privacy("Privacy_ListenEvent") }]))
@@ -234,10 +239,18 @@ final class NavigationControl: NSSegmentedControl {
         for (key, title, value) in [("silence", "Silence before hands-free finishes (seconds)", prefs.silenceSeconds), ("maximum", "Maximum recording (seconds)", prefs.maximumSeconds), ("clipboard", "Clipboard recovery delay (seconds)", prefs.clipboardDelay)] {
             let input = NSTextField(string: String(value)); input.widthAnchor.constraint(equalToConstant: 80).isActive = true; fields[key] = input; body.addArrangedSubview(row([label(title), input]))
         }
-        body.addArrangedSubview(label("AI cleanup stays disabled: the downloaded model did not meet the response-time gate. Rule cleanup is active."))
+        let modelCleanup = NSButton(checkboxWithTitle: "Use validated on-device punctuation cleanup", target: nil, action: nil)
+        modelCleanup.state = prefs.useModel && controller.modelPassValidated ? .on : .off
+        modelCleanup.isEnabled = controller.modelPassValidated; checks["model"] = modelCleanup; body.addArrangedSubview(modelCleanup)
+        let qualification = CleanupQualification.load()
+        let summary = qualification.map { "Cleanup checks: \($0.passed)/\($0.cases); 95th percentile \(String(format: "%.2f", $0.p95Seconds)) s." } ?? "Validate the installed on-device model before enabling cleanup. Slow or changed content falls back to rules."
+        body.addArrangedSubview(label(summary))
+        body.addArrangedSubview(ActionButton(controller.validationTask == nil ? "Validate local cleanup" : "Validation in progress…") { [weak self] in self?.controller.validateCleanup() })
+        body.addArrangedSubview(ActionButton("Refresh permission status") { [weak self] in self?.render() })
+        if prefs.speechEngine == .systemLegacy { body.addArrangedSubview(ActionButton("Enable system Speech Recognition") { SFSpeechRecognizer.requestAuthorization { _ in } }) }
         body.addArrangedSubview(row([ActionButton("Start at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off")") { [weak self] in self?.toggleStartup() }, ActionButton("Choose speech model…") { [weak self] in self?.chooseSpeechModel() }, ActionButton("Choose decoder…") { [weak self] in self?.chooseDecoder() }]))
         let scroller = scroll(body); fillWidth(scroller); scroller.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
-        body.frame.size = NSSize(width: 820, height: 920)
+        body.frame.size = NSSize(width: 820, height: 1140)
         scroller.contentView.scroll(to: .zero); scroller.reflectScrolledClipView(scroller.contentView)
         fillWidth(ActionButton("Save settings") { [weak self] in self?.saveSettings() })
     }
@@ -249,7 +262,7 @@ final class NavigationControl: NSSegmentedControl {
         var p = controller.preferences
         p.microphone = micIDs[max(0, micPicker.indexOfSelectedItem)]; p.language = ["en-US", "en-IN", "en-GB"][max(0, languagePicker.indexOfSelectedItem)]
         p.retention = Retention.allCases[max(0, retentionPicker.indexOfSelectedItem)]; p.toggleKey = hotkeyPicker.indexOfSelectedItem == 1 ? 2 : 49
-        p.holdEnabled = checks["hold"]?.state == .on; p.holdKey = HoldKey.allCases[max(0, holdPicker.indexOfSelectedItem)]; p.speechEngine = SpeechEngine.allCases[max(0, enginePicker.indexOfSelectedItem)]; p.preserveCode = checks["code"]?.state == .on; p.handsFree = checks["hands"]?.state == .on; p.contextEnabled = checks["context"]?.state == .on; p.spokenReturn = checks["return"]?.state == .on; p.keepAudio = checks["audio"]?.state == .on
+        p.useModel = checks["model"]?.state == .on && controller.modelPassValidated; p.holdEnabled = checks["hold"]?.state == .on; p.holdKey = HoldKey.allCases[max(0, holdPicker.indexOfSelectedItem)]; p.speechEngine = SpeechEngine.allCases[max(0, enginePicker.indexOfSelectedItem)]; p.preserveCode = checks["code"]?.state == .on; p.handsFree = checks["hands"]?.state == .on; p.contextEnabled = checks["context"]?.state == .on; p.spokenReturn = checks["return"]?.state == .on; p.keepAudio = checks["audio"]?.state == .on
         p.silenceSeconds = max(0.5, min(10, fields["silence"]?.doubleValue ?? 1.5)); p.maximumSeconds = max(5, min(600, fields["maximum"]?.doubleValue ?? 120)); p.clipboardDelay = max(0.1, min(2, fields["clipboard"]?.doubleValue ?? 0.35))
         controller.preferences = p; controller.applyPreferences(); statusLabel.stringValue = "Settings saved"
     }

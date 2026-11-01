@@ -45,9 +45,22 @@ import MurmurCore
 @main struct MurmurEntry {
     @MainActor static func main() {
         let app = NSApplication.shared
+        if CommandLine.arguments.contains("--native-checks") {
+            app.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                let arguments = CommandLine.arguments
+                var audio: URL?
+                if let index = arguments.firstIndex(of: "--audio"), arguments.count > index + 1 { audio = URL(fileURLWithPath: arguments[index + 1]) }
+                let result = await NativeChecks.run(audioURL: audio, withCleanup: arguments.contains("--with-cleanup"))
+                if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) { print(String(decoding: data, as: UTF8.self)) }
+                app.stop(nil)
+                app.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: false)
+            }
+            app.run(); return
+        }
         if CommandLine.arguments.contains("--diagnostics") {
             let resources = Bundle.main.resourceURL!
-            let result: [String: Any] = ["microphone_authorized": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized, "accessibility_authorized": AXIsProcessTrusted(), "monitoring_authorized": CGPreflightListenEventAccess(), "speech_model_bundled": FileManager.default.fileExists(atPath: resources.appendingPathComponent("speech-model.bin").path), "editing_model_bundled": FileManager.default.fileExists(atPath: resources.appendingPathComponent("editing-model.gguf").path), "automatic_model_cleanup": false]
+            let result: [String: Any] = ["microphone_authorized": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized, "accessibility_authorized": AXIsProcessTrusted(), "monitoring_authorized": CGPreflightListenEventAccess(), "speech_model_bundled": FileManager.default.fileExists(atPath: resources.appendingPathComponent("speech-model.bin").path), "editing_model_bundled": FileManager.default.fileExists(atPath: resources.appendingPathComponent("editing-model.gguf").path), "automatic_model_cleanup": Preferences.load().useModel && CleanupQualification.load()?.eligible == true, "local_cleanup_qualified": CleanupQualification.load()?.eligible == true]
             if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), let text = String(data: data, encoding: .utf8) { print(text) }
             return
         }
@@ -58,6 +71,7 @@ import MurmurCore
             Task { @MainActor in
                 do { let result = try await ClipboardInserter().insert(text, destination: Destination.capture()); print("Insertion check: \(result.rawValue)") } catch { print(error.localizedDescription) }
                 app.stop(nil)
+                app.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: false)
             }
             app.run(); return
         }

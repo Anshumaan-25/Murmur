@@ -6,6 +6,7 @@ app_path="$PWD/.build/Murmur.app"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 bin_path="$(swift build -c release --show-bin-path)"
 cp "$bin_path/Murmur" "$app_path/Contents/MacOS/Murmur"
+cp tests/golden/cases.json "$app_path/Contents/Resources/cleanup-cases.json"
 cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
@@ -21,10 +22,15 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <key>NSSpeechRecognitionUsageDescription</key><string>Murmur recognizes speech using installed on-device resources.</string>
 </dict></plist>
 PLIST
-if [ -f .local/speech-build/bin/whisper-cli ] && [ -f models/ggml-small.en.bin ]; then
+speech_model="models/ggml-small.en.bin"
+if [ -f models/ggml-small.en-q5_1.bin ]; then
+  python3 -c 'import hashlib,json,pathlib; p=pathlib.Path("models/ggml-small.en-q5_1.bin"); s=json.load(open("docs/SPEECH_VARIANT.json")); h=hashlib.file_digest(p.open("rb"),"sha256").hexdigest() if hasattr(hashlib,"file_digest") else hashlib.sha256(p.read_bytes()).hexdigest(); assert h==s["output_sha256"], "Derived speech model checksum mismatch"'
+  speech_model="models/ggml-small.en-q5_1.bin"
+fi
+if [ -f .local/speech-build/bin/whisper-cli ] && [ -f "$speech_model" ]; then
   cp -p .local/speech-build/bin/whisper-cli "$app_path/Contents/Resources/speech-decode"
-  if [ ! -f "$app_path/Contents/Resources/speech-model.bin" ] || [ models/ggml-small.en.bin -nt "$app_path/Contents/Resources/speech-model.bin" ]; then
-    cp -p models/ggml-small.en.bin "$app_path/Contents/Resources/speech-model.bin"
+  if [ ! -f "$app_path/Contents/Resources/speech-model.bin" ] || [ "$(stat -f%z "$speech_model")" != "$(stat -f%z "$app_path/Contents/Resources/speech-model.bin")" ] || [ "$speech_model" -nt "$app_path/Contents/Resources/speech-model.bin" ]; then
+    cp -p "$speech_model" "$app_path/Contents/Resources/speech-model.bin"
   fi
   cp .local/vendor/speech-engine/LICENSE "$app_path/Contents/Resources/SpeechEngine-LICENSE.txt"
 fi

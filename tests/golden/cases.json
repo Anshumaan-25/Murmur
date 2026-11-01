@@ -158,5 +158,205 @@
   {
     "input": "thanks",
     "expected": "Thanks."
+  },
+  {
+    "input": "I should actually bring the notes",
+    "expected": "I should actually bring the notes."
+  },
+  {
+    "input": "I actually agree with you",
+    "expected": "I actually agree with you."
+  },
+  {
+    "input": "we could actually finish today",
+    "expected": "We could actually finish today."
+  },
+  {
+    "input": "send it to New York actually Boston",
+    "expected": "Send it to Boston."
+  },
+  {
+    "input": "send it to New York actually San Francisco",
+    "expected": "Send it to San Francisco."
+  },
+  {
+    "input": "send it to Alex actually Sam tomorrow",
+    "expected": "Send it to Sam tomorrow."
+  },
+  {
+    "input": "meet on Monday actually Wednesday at three",
+    "expected": "Meet on Wednesday at 3."
+  },
+  {
+    "input": "meet on Friday no Saturday",
+    "expected": "Meet on Saturday."
+  },
+  {
+    "input": "meet at three thirty",
+    "expected": "Meet at 3:30."
+  },
+  {
+    "input": "meet at five fifteen",
+    "expected": "Meet at 5:15."
+  },
+  {
+    "input": "meet at three oh five",
+    "expected": "Meet at 3:05."
+  },
+  {
+    "input": "meet at three thirty actually four fifteen",
+    "expected": "Meet at 4:15."
+  },
+  {
+    "input": "meet at 3:30 pm actually make that 4:15 pm",
+    "expected": "Meet at 4:15 PM."
+  },
+  {
+    "input": "version 3.5 actually make that 3.6",
+    "expected": "Version 3.6."
+  },
+  {
+    "input": "meet at three actually make that five tomorrow",
+    "expected": "Meet at 5 tomorrow."
+  },
+  {
+    "input": "we need two hundred and five chairs",
+    "expected": "We need 205 chairs."
+  },
+  {
+    "input": "the count is one thousand two hundred thirty four",
+    "expected": "The count is 1234."
+  },
+  {
+    "input": "we need a hundred tickets",
+    "expected": "We need 100 tickets."
+  },
+  {
+    "input": "a million records",
+    "expected": "1000000 records."
+  },
+  {
+    "input": "code one two three four",
+    "expected": "Code 1234."
+  },
+  {
+    "input": "code one zero one",
+    "expected": "Code 101."
+  },
+  {
+    "input": "five and six chairs",
+    "expected": "5 and 6 chairs."
+  },
+  {
+    "input": "one of us should go",
+    "expected": "One of us should go."
+  },
+  {
+    "input": "temperature minus five",
+    "expected": "Temperature -5."
+  },
+  {
+    "input": "the value is three point one four",
+    "expected": "The value is 3.14."
+  },
+  {
+    "input": "version three point two",
+    "expected": "Version 3.2."
+  },
+  {
+    "input": "discount twenty percent",
+    "expected": "Discount 20%."
+  },
+  {
+    "input": "meet on April fifth",
+    "expected": "Meet on April 5th."
+  },
+  {
+    "input": "meet on June first",
+    "expected": "Meet on June 1st."
+  },
+  {
+    "input": "she came first and he came second",
+    "expected": "She came first and he came second."
+  },
+  {
+    "input": "first I need a second opinion",
+    "expected": "First I need a second opinion."
+  },
+  {
+    "input": "do you know the answer question mark",
+    "expected": "Do you know the answer?"
+  },
+  {
+    "input": "you know, the report is ready",
+    "expected": "The report is ready."
+  },
+  {
+    "input": "well, the report is ready",
+    "expected": "The report is ready."
+  },
+  {
+    "input": "send the report, scratch that, send the summary",
+    "expected": "Send the summary."
+  },
+  {
+    "input": "send the report. never mind, send the summary",
+    "expected": "Send the summary."
+  },
+  {
+    "input": "keep user@example.test unchanged",
+    "expected": "Keep user@example.test unchanged."
+  },
+  {
+    "input": "keep https://example.invalid/a unchanged",
+    "expected": "Keep https://example.invalid/a unchanged."
+  },
+  {
+    "input": "keep 192.0.2.40 unchanged",
+    "expected": "Keep 192.0.2.40 unchanged."
+  },
+  {
+    "input": "it costs twenty five dollars",
+    "expected": "It costs 25 dollars."
+  },
+  {
+    "input": "it costs one hundred and twenty five dollars",
+    "expected": "It costs 125 dollars."
+  },
+  {
+    "input": "the count is two million three hundred thousand",
+    "expected": "The count is 2300000."
+  },
+  {
+    "input": "we need thirty two boxes",
+    "expected": "We need 32 boxes."
+  },
+  {
+    "input": "do not change my words",
+    "expected": "Do not change my words."
+  },
+  {
+    "input": "quote the word actually",
+    "expected": "Quote the word actually."
+  },
+  {
+    "input": "hello semicolon goodbye",
+    "expected": "Hello; goodbye."
+  },
+  {
+    "input": "hello comma world question mark",
+    "expected": "Hello, world?"
+  },
+  {
+    "input": "great full stop next item",
+    "expected": "Great. Next item."
+  },
+  {
+    "input": "first apples second oranges third pears fourth grapes",
+    "expected": "1. Apples\n2. Oranges\n3. Pears\n4. Grapes."
+  },
+  {
+    "input": "um uh erm the report is ready",
+    "expected": "The report is ready."
   }
 ]

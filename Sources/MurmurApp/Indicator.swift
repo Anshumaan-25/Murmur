@@ -50,7 +50,7 @@ final class IndicatorView: NSView {
     }
     func show(_ message: String, phase: CapturePhase) {
         dismissal?.cancel(); content.message = message; content.phase = phase; content.needsDisplay = true
-        panel.orderFrontRegardless()
+        panel.orderFrontRegardless(); panel.displayIfNeeded()
         if phase == .idle || phase == .cancelled || phase == .failed {
             let work = DispatchWorkItem { [weak self] in self?.panel.orderOut(nil) }; dismissal = work
             DispatchQueue.main.asyncAfter(deadline: .now() + (phase == .failed ? 5 : 2), execute: work)

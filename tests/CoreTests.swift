@@ -9,7 +9,7 @@ func expect(_ condition: @autoclosure () -> Bool, _ name: String) {
     if !condition() { failed += 1; print("FAIL: \(name)") }
 }
 @main struct CoreVerification {
- static func main() async {
+ @MainActor static func main() async {
 var gate = SessionGate()
 let old = gate.begin(); gate.cancel()
 expect(!gate.accepts(old), "cancel invalidates work")
@@ -157,6 +157,45 @@ catch { expect(false, "deadline fast work succeeds") }
 let deadlineTask = Task { try await Deadline.run(seconds: 10) { try await Task.sleep(nanoseconds: 10_000_000_000); return 7 } }
 deadlineTask.cancel()
 do { _ = try await deadlineTask.value; expect(false, "deadline propagates caller cancellation") } catch { expect(true, "deadline propagates caller cancellation") }
+expect(!CleanupFidelity.accepts("Great.", baseline: "Great!", dictionary: [], preservePunctuation: true), "explicit punctuation retained")
+expect(CleanupQualification(cases: 90, passed: 90, accepted: 70, p95Seconds: 0.5).eligible, "model eligibility requires quality and speed")
+expect(!CleanupQualification(cases: 90, passed: 89, accepted: 70, p95Seconds: 0.5).eligible, "one failed golden blocks model eligibility")
+expect(!CleanupQualification(cases: 90, passed: 90, accepted: 70, p95Seconds: 1.1).eligible, "slow model cannot qualify")
+expect(!CleanupQualification(cases: 90, passed: 90, accepted: 0, p95Seconds: 0.1).eligible, "all-fallback benchmark cannot qualify a model")
+let digestCases = [CleanupFixture(input: "hello", expected: "Hello.")]
+expect(CleanupFixture.fingerprint(digestCases) == CleanupFixture.fingerprint(digestCases), "fixture fingerprint is stable")
+expect(CleanupFixture.fingerprint(digestCases) != CleanupFixture.fingerprint([CleanupFixture(input: "hello", expected: "Hello!")]), "changed expectations invalidate qualification")
+var metrics = SessionMeasurements()
+metrics.feedback(trigger: 1, painted: 1.05); metrics.feedback(trigger: 5, painted: 4)
+metrics.insertion(released: 2, finished: 2.8)
+expect(metrics.feedbackMilliseconds.count == 1, "invalid clock samples ignored")
+expect(abs((SessionMeasurements.median(metrics.feedbackMilliseconds) ?? 0) - 50) < 0.1, "feedback metric uses event clock")
+expect(abs((SessionMeasurements.median(metrics.insertionMilliseconds) ?? 0) - 800) < 0.1, "insertion metric covers release to completion")
+let deliveryBoard = NSPasteboard(name: .init("local.murmur.transaction." + UUID().uuidString))
+deliveryBoard.setString("Prior", forType: .string)
+let transaction = ClipboardDelivery()
+do {
+    var observed = ""
+    try await transaction.deliver("Delivered", board: deliveryBoard, delay: 0.01) { observed = deliveryBoard.string(forType: .string) ?? "" }
+    expect(observed == "Delivered", "paste sees offered clipboard")
+    expect(deliveryBoard.string(forType: .string) == "Prior", "transaction restores clipboard")
+    do { try await transaction.deliver("Failure", board: deliveryBoard, delay: 0.01) { throw MurmurError.empty }; expect(false, "delivery exception propagates") }
+    catch { expect(deliveryBoard.string(forType: .string) == "Prior", "delivery exception restores clipboard") }
+} catch { expect(false, "clipboard transaction") }
+deliveryBoard.releaseGlobally()
+expect(DictationLanguage.numbers("FIVE AND SIX") == "5 and 6", "capitalized conjunction does not recurse")
+expect(DictationLanguage.numbers("one and hello") == "1 and hello", "number conversion preserves trailing conjunction")
+expect(!RewriteFidelity.accepts("Meet at 5.", selected: "Meet at 4."), "model rewrite preserves numerical facts")
+expect(!RewriteFidelity.accepts("Visit another company.", selected: "Visit Acme.", protectedTerms: ["Acme"]), "model rewrite preserves protected terms")
+expect(RewriteFidelity.accepts("Acme: 4 seats.", selected: "There are 4 seats at Acme.", protectedTerms: ["Acme"]), "shorter rewrite may preserve facts")
+do {
+    let replacement = try EditingCommand.apply("Replace 3 with 4", selected: "Meet at 3.")
+    expect(replacement == "Meet at 4.", "explicit numeric replacement is deterministic")
+    let verbal = try EditingCommand.apply("replace three with four", selected: "Meet at 3.")
+    expect(verbal == "Meet at 4.", "spoken numeric replacement")
+    let tone = try EditingCommand.apply("make it informal", selected: "Regarding the report.")
+    expect(tone == "About the report.", "informal does not invoke formal styling")
+} catch { expect(false, "explicit editing operations") }
 print("\(checks - failed)/\(checks) checks passed")
 exit(failed == 0 ? 0 : 1)
 
