@@ -30,3 +30,5 @@
 
 - D27: Plain dictation must work in editors that expose only an opaque group or window. A recording-scoped listen-only event tap tracks focus-changing input as one Boolean, without retaining keys or pointer locations. If Input Monitoring is available, the same known app/window and uninterrupted keyboard focus can authorize ordinary paste without an AX text field. Password/protected input remains blocked, and selected-text rewrites still require a readable selection. Opaque group values are not treated as the destination's text.
 - D28: The running GUI process can evaluate delivery readiness on request without posting any input. Delivery diagnostics retain role, app and Boolean evidence only, allowing a failed insertion to be distinguished from a missing permission without exposing a transcript or field value.
+
+- D29: Keydown is the display name, bundle filename, and app executable name. Keep the original bundle ID, signing identity, and application support directory so existing macOS grants and user data carry over. Archive the prior installed bundle when upgrading.

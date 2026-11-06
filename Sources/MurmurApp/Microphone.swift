@@ -19,7 +19,7 @@ final class Microphone {
     }
     var inputDevice: AudioDeviceID = 0
     func start() throws {
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw MurmurError.unavailable("Enable Murmur microphone access in System Settings.") }
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw MurmurError.unavailable("Enable Keydown microphone access in System Settings.") }
         engine = AVAudioEngine()
         let node = engine.inputNode
         if inputDevice != 0, let unit = node.audioUnit {

@@ -80,7 +80,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     init(controller: DictationController, preview: Bool = false) {
         self.controller = controller; self.preview = preview
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1140, height: 820), styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = "Murmur"; window.minSize = NSSize(width: 1040, height: 760); window.isReleasedWhenClosed = false
+        window.title = "Keydown"; window.minSize = NSSize(width: 1040, height: 760); window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden; window.appearance = NSAppearance(named: .darkAqua); window.backgroundColor = Palette.background; window.contentView = content
         super.init(window: window)
         buildShell(); window.center(); render()
@@ -94,7 +94,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     func buildShell() {
         statusLabel.stringValue = "Ready · " + controller.shortcutTitle
         let sidebar = SurfaceView(); sidebar.color = NSColor(srgbRed: 0.057, green: 0.065, blue: 0.10, alpha: 1); sidebar.radius = 0
-        let brand = row([BrandMark(), label("murmur", size: 25, weight: .semibold)])
+        let brand = row([BrandMark(), label("Keydown", size: 25, weight: .semibold)])
         let nav = column(5)
         let titles = ["History", "Vocabulary", "Snippets", "App styles", "Settings"]
         let icons = ["clock.arrow.circlepath", "character.book.closed", "text.quote", "slider.horizontal.3", "gearshape"]
@@ -142,7 +142,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         permissionLabel.stringValue = trusted ? "●  ON DEVICE" : "●  PASTE ACCESS NEEDED"
         permissionLabel.textColor = trusted ? Palette.mint : .systemOrange
         permissionButton?.isHidden = trusted
-        permissionButton?.toolTip = "Allow Murmur in System Settings → Privacy & Security → Accessibility to insert text at your cursor."
+        permissionButton?.toolTip = "Allow Keydown in System Settings → Privacy & Security → Accessibility to insert text at your cursor."
     }
     func dictateFromHub() {
         window?.orderOut(nil)
@@ -237,12 +237,12 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
             if FileManager.default.fileExists(atPath: audio.path) { try FileManager.default.removeItem(at: audio) }
             reloadHistory(); details.string = "Deleted locally." } catch { statusLabel.stringValue = error.localizedDescription } }
     func exportHistory() {
-        let save = NSSavePanel(); save.allowedContentTypes = [.json]; save.nameFieldStringValue = "Murmur-history.json"
+        let save = NSSavePanel(); save.allowedContentTypes = [.json]; save.nameFieldStringValue = "Keydown-history.json"
         if save.runModal() == .OK, let url = save.url { do { let records = try controller.history?.records() ?? []; let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; encoder.dateEncodingStrategy = .iso8601; try encoder.encode(records).write(to: url, options: .atomic); statusLabel.stringValue = "History exported" } catch { statusLabel.stringValue = error.localizedDescription } }
     }
     func dictionaryPage() {
         fillWidth(label("Names worth getting right", size: 22, weight: .semibold))
-        fillWidth(label("Add a name or term on each line. Murmur uses these as recognition hints and keeps their capitalization."))
+        fillWidth(label("Add a name or term on each line. Keydown uses these as recognition hints and keeps their capitalization."))
         let terms = preview ? [] : (try? controller.history?.dictionary()) ?? []
         let (view, scroller) = editor(terms.joined(separator: "\n"), height: 260); words = view; fillWidth(scroller)
         fillWidth(ActionButton("Save vocabulary", primary: true) { [weak self] in guard let self else { return }; do { try self.controller.history?.setDictionary(self.words.string.components(separatedBy: .newlines)); self.statusLabel.stringValue = "Vocabulary saved" } catch { self.statusLabel.stringValue = error.localizedDescription } })

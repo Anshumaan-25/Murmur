@@ -1,28 +1,29 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-swift build -c release --product Murmur
-app_path="$PWD/.build/Murmur.app"
+swift build -c release --product Keydown
+app_path="$PWD/.build/Keydown.app"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 bin_path="$(swift build -c release --show-bin-path)"
-cp "$bin_path/Murmur" "$app_path/Contents/MacOS/Murmur"
-swift scripts/create_icon.swift .build/Murmur.iconset
-iconutil -c icns .build/Murmur.iconset -o "$app_path/Contents/Resources/Murmur.icns"
+cp "$bin_path/Keydown" "$app_path/Contents/MacOS/Keydown"
+swift scripts/create_icon.swift .build/Keydown.iconset
+iconutil -c icns .build/Keydown.iconset -o "$app_path/Contents/Resources/Keydown.icns"
 cp tests/golden/cases.json "$app_path/Contents/Resources/cleanup-cases.json"
 cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>Murmur</string>
+<key>CFBundleExecutable</key><string>Keydown</string>
 <key>CFBundleIdentifier</key><string>local.murmur.dictation</string>
-<key>CFBundleName</key><string>Murmur</string>
-<key>CFBundleIconFile</key><string>Murmur</string>
+<key>CFBundleName</key><string>Keydown</string>
+<key>CFBundleDisplayName</key><string>Keydown</string>
+<key>CFBundleIconFile</key><string>Keydown.icns</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSUIElement</key><true/>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
-<key>NSMicrophoneUsageDescription</key><string>Murmur records your voice only when you start dictation.</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>Murmur recognizes speech using installed on-device resources.</string>
+<key>NSMicrophoneUsageDescription</key><string>Keydown records your voice only when you start dictation.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Keydown recognizes speech using installed on-device resources.</string>
 </dict></plist>
 PLIST
 speech_model="models/ggml-small.en.bin"

@@ -8,8 +8,8 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-APP = pathlib.Path('/Applications/Murmur.app')
-EXECUTABLE = APP / 'Contents/MacOS/Murmur'
+APP = pathlib.Path('/Applications/Keydown.app')
+EXECUTABLE = APP / 'Contents/MacOS/Keydown'
 
 
 def read_when_ready(path, timeout=8):
@@ -25,11 +25,11 @@ def read_when_ready(path, timeout=8):
 def main():
     status = json.loads(subprocess.check_output([str(EXECUTABLE), '--diagnostics'], text=True))
     if status.get('source') != 'running_app' or not status.get('accessibility_authorized'):
-        raise SystemExit('Open the installed Murmur app with Accessibility enabled before this optional check.')
+        raise SystemExit('Open the installed Keydown app with Accessibility enabled before this optional check.')
     fixture = ROOT / '.local/PasteTarget.app'
     binary = fixture / 'Contents/MacOS/PasteTarget'
     binary.parent.mkdir(parents=True, exist_ok=True)
-    (fixture / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'PasteTarget', 'CFBundleIdentifier':'local.murmur.paste-target', 'CFBundleName':'Murmur Test Destination', 'CFBundlePackageType':'APPL'}))
+    (fixture / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'PasteTarget', 'CFBundleIdentifier':'local.murmur.paste-target', 'CFBundleName':'Keydown Test Destination', 'CFBundlePackageType':'APPL'}))
     subprocess.run(['swiftc', str(ROOT / 'tests/PasteTarget.swift'), '-o', str(binary)], check=True)
     subprocess.run(['codesign', '--force', '--sign', '-', str(fixture)], check=True)
     results = {}
@@ -41,7 +41,7 @@ def main():
             try:
                 read_when_ready(state)
                 time.sleep(0.6)
-                text = 'Murmur insertion check 世界.'
+                text = 'Keydown insertion check 世界.'
                 subprocess.run(['open', '-g', '-n', str(APP), '--args', '--test-insert', text, '--insert-report', str(report), '--expected-target', 'local.murmur.paste-target'] + (['--move-fixture-cursor'] if mode == 'opaque-moved' else []), check=True)
                 result = read_when_ready(report)
                 if result.get('target_app') != 'local.murmur.paste-target':

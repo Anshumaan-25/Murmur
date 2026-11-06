@@ -31,4 +31,4 @@ Codex's actual window exposed AXGroup objects rather than a focused editable fie
 
 Live microphone quality, physical shortcut handling, the system globe action, fullscreen Spaces, exact privacy-pane navigation, launch-at-login registration, and a complete dictated utterance in the user's third-party apps remain manual acceptance items. Opaque-editor automatic insertion uses Input Monitoring in addition to Accessibility; ordinary accessible-field insertion retains its existing checks.
 
-Open Murmur → Settings, grant the needed permissions, and follow MANUAL_TESTS.md. Optional cleanup can be enabled after validation qualifies on the current computer; it defaults to rules. No cloud adapter, account, telemetry, or reference-application runtime access is part of the implementation.
+Open Keydown → Settings, grant the needed permissions, and follow MANUAL_TESTS.md. Optional cleanup can be enabled after validation qualifies on the current computer; it defaults to rules. No cloud adapter, account, telemetry, or reference-application runtime access is part of the implementation.

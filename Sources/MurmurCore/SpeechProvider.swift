@@ -24,7 +24,7 @@ public struct SystemSpeechProvider: SpeechProvider {
         let began = Date(); try Task.checkCancellation()
         guard SpeechTranscriber.isAvailable, let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: language)) else { throw MurmurError.unavailable("This language is not supported by system speech.") }
         let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
-        guard await AssetInventory.status(forModules: [transcriber]) == .installed else { throw MurmurError.unavailable("Install this language in macOS speech settings, or select a downloaded decoder. Murmur will not download assets automatically.") }
+        guard await AssetInventory.status(forModules: [transcriber]) == .installed else { throw MurmurError.unavailable("Install this language in macOS speech settings, or select a downloaded decoder. Keydown will not download assets automatically.") }
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         if !vocabulary.isEmpty {
             let context = AnalysisContext(); context.contextualStrings[.general] = vocabulary

@@ -8,7 +8,7 @@ app:
 install: app
 	bash scripts/install_app.sh
 run: app
-	open .build/Murmur.app
+	open .build/Keydown.app
 demo:
 	bash scripts/demo.sh
 bench:

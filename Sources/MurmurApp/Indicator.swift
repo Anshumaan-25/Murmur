@@ -40,7 +40,7 @@ final class IndicatorView: NSView {
         let isLong = message.count > 32
         if isLong { paragraph.lineBreakMode = .byWordWrapping }
         (message as NSString).draw(in: NSRect(x: 140, y: isLong ? 29 : 38, width: bounds.width - 157, height: isLong ? 33 : 18), withAttributes: [.font:font, .foregroundColor:Palette.text, .paragraphStyle:paragraph])
-        let hint = phase == .listening ? "Speak naturally · Esc to cancel" : (phase == .processing ? "Transcribing on your Mac" : (message.hasPrefix("Copied") ? "Your text is on the clipboard" : "MURMUR · ON DEVICE"))
+        let hint = phase == .listening ? "Speak naturally · Esc to cancel" : (phase == .processing ? "Transcribing on your Mac" : (message.hasPrefix("Copied") ? "Your text is on the clipboard" : "KEYDOWN · ON DEVICE"))
         (hint as NSString).draw(at: NSPoint(x: 140, y: 17), withAttributes: [.font:NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor:Palette.muted])
     }
     override func mouseDown(with event: NSEvent) { dragOffset = event.locationInWindow }
@@ -69,7 +69,7 @@ final class IndicatorView: NSView {
         panel.level = .statusBar; panel.isFloatingPanel = true; panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true; panel.contentView = content
-        panel.setAccessibilityLabel("Murmur dictation status")
+        panel.setAccessibilityLabel("Keydown dictation status")
         if let screen = NSScreen.main {
             let available = screen.visibleFrame
             var origin = NSPoint(x: available.midX - 188, y: available.minY + 28)

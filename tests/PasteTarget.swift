@@ -20,7 +20,7 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate
         try? JSONSerialization.data(withJSONObject: json).write(to: output, options: .atomic)
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
-        window.title = "Murmur insertion fixture"
+        window.title = "Keydown insertion fixture"
         let menu = NSMenu(); let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: ""); let commands = NSMenu(title: "Edit")
         commands.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")); edit.submenu = commands; menu.addItem(edit); NSApp.mainMenu = menu
         if CommandLine.arguments.contains("--web") {
@@ -35,7 +35,7 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate
     }
     func textDidChange(_ notification: Notification) {
         report(text.string)
-        if !checkedUndo, text.string.contains("Murmur insertion check") {
+        if !checkedUndo, text.string.contains("Keydown insertion check") {
             checkedUndo = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
                 let delivered = text.string

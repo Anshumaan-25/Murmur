@@ -1,15 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-app_binary="$PWD/.build/Murmur.app/Contents/MacOS/Murmur"
+app_binary="$PWD/.build/Keydown.app/Contents/MacOS/Keydown"
 status_json="$("$app_binary" --diagnostics)"
 if ! python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["accessibility_authorized"] else 1)' <<< "$status_json"; then
-  printf 'SKIPPED: Enable Murmur in System Settings > Privacy & Security > Accessibility.\n'
+  printf 'SKIPPED: Enable Keydown in System Settings > Privacy & Security > Accessibility.\n'
   exit 77
 fi
 osascript <<'APPLESCRIPT'
 tell application "TextEdit"
-  make new document with properties {text:"Murmur integration: "}
+  make new document with properties {text:"Keydown integration: "}
   activate
 end tell
 APPLESCRIPT

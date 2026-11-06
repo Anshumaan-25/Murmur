@@ -3,7 +3,7 @@ import AVFoundation
 import ApplicationServices
 import MurmurCore
 
-@MainActor final class MurmurDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class KeydownDelegate: NSObject, NSApplicationDelegate {
     let controller = DictationController()
     var item: NSStatusItem!
     var hub: Hub?
@@ -11,9 +11,9 @@ import MurmurCore
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Murmur")
+        item.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Keydown")
         let menu = NSMenu()
-        for (title, action, key) in [("Start / stop dictation", #selector(dictate), ""), ("Edit selected text", #selector(edit), ""), ("Paste previous text", #selector(previous), ""), ("Open Murmur", #selector(showHub), ","), ("Quit Murmur", #selector(quit), "q")] {
+        for (title, action, key) in [("Start / stop dictation", #selector(dictate), ""), ("Edit selected text", #selector(edit), ""), ("Paste previous text", #selector(previous), ""), ("Open Keydown", #selector(showHub), ","), ("Quit Keydown", #selector(quit), "q")] {
             let entry = NSMenuItem(title: title, action: action, keyEquivalent: key); entry.target = self; menu.addItem(entry)
         }
         item.menu = menu
@@ -52,7 +52,7 @@ import MurmurCore
     @objc func previous() { controller.pasteLast() }
     @objc func quit() { controller.cancel(); NSApp.terminate(nil) }
 }
-@main struct MurmurEntry {
+@main struct KeydownEntry {
     @MainActor static func main() {
         let app = NSApplication.shared
         if CommandLine.arguments.contains("--native-checks") {
@@ -127,7 +127,7 @@ import MurmurCore
             }
             app.run(); return
         }
-        let delegate = MurmurDelegate()
+        let delegate = KeydownDelegate()
         app.delegate = delegate
         app.run()
         withExtendedLifetime(delegate) {}
