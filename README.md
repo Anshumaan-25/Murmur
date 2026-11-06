@@ -43,3 +43,5 @@ The setup script derives a compact speech model locally from the checksum-verifi
 `python3 scripts/compare_engines.py` repeats the bounded local engine comparison. `bash scripts/native_checks.sh` verifies native controls, undo/redo, Unicode, clipboard restoration and the nonactivating panel without microphone access. Add `--audio tests/audio/ten-seconds.wav` for synthetic-input pipeline timing, and `--with-cleanup` for the qualified optional model. Generate those synthetic clips with `make bench` first. These checks use an app-owned text view; external applications remain covered by the permission-gated integration script and manual checks.
 
 Settings reports in-memory indicator paint-dispatch and successful insertion timing for the current launch. No audio or text is included in those measurements.
+
+:)
