@@ -52,14 +52,30 @@ public struct ExecutableSpeechProvider: SpeechProvider {
     public var executable: URL
     public var model: URL
     public var useGPU: Bool
-    public init(executable: URL, model: URL, useGPU: Bool = true) { self.executable = executable; self.model = model; self.useGPU = useGPU }
+    private let timestampDecoding: Bool
+    public init(executable: URL, model: URL, useGPU: Bool = true, timestampDecoding: Bool = true) {
+        self.executable = executable
+        self.model = model
+        self.useGPU = useGPU
+        self.timestampDecoding = timestampDecoding
+    }
     public func transcribe(_ audio: [AudioFrame], language: String, vocabulary: [String]) async throws -> SpeechResult {
         let start = Date()
-        var arguments = ["-m", model.path, "-f", "-", "-nt", "-np", "-otxt", "-of", "-", "-l", language.hasPrefix("en") ? "en" : language]
+        var arguments = ["-m", model.path, "-f", "-", "-np", "-otxt", "-of", "-", "-l", language.hasPrefix("en") ? "en" : language]
+        // The decoder uses timestamp tokens to find speech boundaries. The TXT output omits timestamps.
+        if !timestampDecoding { arguments.append("-nt") }
         if !useGPU { arguments.append("-ng") }
         if !vocabulary.isEmpty { arguments += ["--prompt", vocabulary.joined(separator: ", ")] }
         let output = try await LocalProcess.run(executable: executable, arguments: arguments, input: AudioTools.wav(audio), timeout: 60)
-        let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text: String
+        if timestampDecoding {
+            text = output.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        } else {
+            text = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         guard !text.isEmpty else { throw MurmurError.empty }
         return SpeechResult(text: text, seconds: Date().timeIntervalSince(start))
     }

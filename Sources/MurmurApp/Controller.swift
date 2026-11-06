@@ -41,7 +41,9 @@ import MurmurCore
         let customExecutable = preferences.customSpeechExecutable
         let executable = customExecutable.isEmpty ? resources.appendingPathComponent("speech-decode") : URL(fileURLWithPath: customExecutable)
         let model = customModel.isEmpty ? resources.appendingPathComponent("speech-model.bin") : URL(fileURLWithPath: customModel)
-        if FileManager.default.isExecutableFile(atPath: executable.path), FileManager.default.fileExists(atPath: model.path) { return ExecutableSpeechProvider(executable: executable, model: model) }
+        if FileManager.default.isExecutableFile(atPath: executable.path), FileManager.default.fileExists(atPath: model.path) {
+            return ExecutableSpeechProvider(executable: executable, model: model, timestampDecoding: customExecutable.isEmpty)
+        }
         if preferences.speechEngine == .bundled { return UnavailableSpeechProvider("Choose a local model and executable, or switch to Automatic.") }
         return SystemSpeechProvider()
     }

@@ -57,7 +57,8 @@ public struct RuleCleanup: CleanupProvider {
             else { output.append(character); if character.isNumber { uppercase = false } }
             if character == "\n" || (".!?".contains(character) && (index + 1 == characters.count || characters[index + 1].isWhitespace)) { uppercase = true }
         }
-        if let last = output.last, !".!?:;".contains(last) { output += "." }
+        let ending = output.reversed().drop(while: { "\"”’»".contains($0) }).first
+        if let ending, !".!?:;".contains(ending) { output += "." }
         return output
     }
     private func replace(_ text: String, _ expression: String, _ replacement: String) -> String {

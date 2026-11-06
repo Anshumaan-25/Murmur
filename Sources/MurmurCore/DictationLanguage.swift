@@ -14,6 +14,8 @@ public enum DictationLanguage {
         text = replace(text, pattern: clock, template: "$1$3")
         let weekday = "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
         text = replace(text, pattern: "\\b" + weekday + "\\s*,?\\s*(?:actually(?:\\s+make\\s+that)?|no(?:\\s+make\\s+that)?|sorry(?:\\s+make\\s+that)?)\\s+(" + weekday + ")\\b", template: "$1")
+        let repeatedQuantity = #"(?<![\w.,$+−-])\d+(?:,\d{3})*[ \t]+([\p{L}]+),[ \t]*sorry,[ \t]*(\d+(?:,\d{3})*[ \t]+\1)\b(?!['’-])"#
+        text = replace(text, pattern: repeatedQuantity, template: "$2")
         let number = #"[-+]?\d+(?:[.:]\d+)*(?:%|st|nd|rd|th)?"#
         text = replace(text, pattern: "(" + number + ")\\s*,?\\s*actually(?:\\s+make\\s+that)?\\s+(" + number + ")", template: "$2")
         let word = #"(?:[-+]?\d+(?:[.:]\d+)*|[\p{L}][\p{L}'’-]*)"#

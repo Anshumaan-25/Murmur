@@ -45,6 +45,33 @@ do {
     expect(cases.count >= 30, "golden suite minimum")
     for (index, sample) in cases.enumerated() { let actual = RuleCleanup().apply(sample.input); if actual != sample.expected { print("Golden \(index): got \(actual.debugDescription), expected \(sample.expected.debugDescription)") }; expect(actual == sample.expected, "golden \(index)") }
 } catch { expect(false, "golden fixtures decode") }
+expect(RuleCleanup().apply(#"he said, "send it.""#) == #"He said, "send it.""#, "cleanup preserves punctuation inside a closing quote")
+expect(RuleCleanup().apply("she asked, “is it ready?”") == "She asked, “is it ready?”", "quoted question does not receive a second period")
+expect(RuleCleanup().apply("send fifteen invoices, sorry, fifty invoices to the office") == "Send 50 invoices to the office.", "explicit correction replaces a repeated quantity")
+expect(RuleCleanup().apply("send 1,500 invoices, sorry, 2,500 invoices to the office") == "Send 2,500 invoices to the office.", "quantity correction preserves thousands separators")
+expect(RuleCleanup().apply("send 15 invoices, sorry, 50 receipts are missing") == "Send 15 invoices, sorry, 50 receipts are missing.", "different items keep both quantities")
+do {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let executable = directory.appendingPathComponent("decoder-fixture")
+    let script = #"""
+    #!/bin/sh
+    case " $* " in
+      *" -nt "*) printf 'custom\ntranscript\n';;
+      *) printf 'send 15 invoices, sorry, 50\n invoices to the office.\n';;
+    esac
+    """#
+    try script.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+    let bundled = ExecutableSpeechProvider(executable: executable, model: executable)
+    let result = try await bundled.transcribe(framed, language: "en-US", vocabulary: [])
+    expect(result.text == "send 15 invoices, sorry, 50 invoices to the office.", "bundled decoding joins segment boundaries without exposing timestamps")
+    expect(RuleCleanup().apply(result.text) == "Send 50 invoices to the office.", "explicit corrections survive decoder segment boundaries")
+    let custom = ExecutableSpeechProvider(executable: executable, model: executable, timestampDecoding: false)
+    let customResult = try await custom.transcribe(framed, language: "en-US", vocabulary: [])
+    expect(customResult.text == "custom\ntranscript", "custom decoder retains its flags and line breaks")
+} catch { expect(false, "executable speech provider fixture: \(error)") }
 expect(!TextGuard.accepts("Here is an answer with unrelated content", original: "Send the invoice."), "unrelated model output rejected")
 expect(!TextGuard.accepts("Meet at 5.", original: "Meet at 4."), "changed number rejected")
 expect(TextGuard.accepts("Send the note.", original: "Send the note."), "faithful output allowed")
