@@ -33,3 +33,4 @@
 
 - D29: Keydown is the display name, bundle filename, and app executable name. Keep the original bundle ID, signing identity, and application support directory so existing macOS grants and user data carry over. Archive the prior installed bundle when upgrading.
 - D30: Use the menu bar app as the opt-in login item. Defer window and audio engine creation until needed. Suspend input and cancel pending work during sleep or an inactive user session, then restore shortcuts once every interruption clears. Scope the user-initiated activity to dictation and allow idle system sleep.
+- D31: Recognize hold-to-talk after a short standalone press. Ordinary keyboard chords cancel a pending hold. A Keydown chord interrupts an owned hold before executing its action. Debounce Carbon presses until release and keep queued events tied to their original registration.

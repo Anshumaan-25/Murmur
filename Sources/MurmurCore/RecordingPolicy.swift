@@ -1,8 +1,8 @@
 import Foundation
 
 public enum RecordingPolicy {
-    public static func shouldFinish(duration: Double, silence: Double, heardSpeech: Bool, handsFree: Bool, silenceLimit: Double, maximum: Double) -> Bool {
-        duration >= max(1, maximum) || (handsFree && heardSpeech && silence >= max(0.3, silenceLimit))
+    public static func shouldFinish(duration: Double, silence: Double, heardSpeech: Bool, handsFree: Bool, silenceLimit: Double, maximum: Double, holdToTalk: Bool = false) -> Bool {
+        duration >= max(1, maximum) || (!holdToTalk && handsFree && heardSpeech && silence >= max(0.3, silenceLimit))
     }
     public static func returnIntent(_ text: String, enabled: Bool) -> (text: String, pressReturn: Bool) {
         guard enabled else { return (text, false) }

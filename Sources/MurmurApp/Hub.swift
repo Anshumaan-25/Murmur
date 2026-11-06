@@ -78,6 +78,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     private weak var startupStatus: NSTextField?
     private weak var startupButton: ActionButton?
     private weak var shortcutWarning: NSTextField?
+    private weak var sidebarShortcut: NSTextField?
     var checks: [String: NSButton] = [:]
     var fields: [String: NSTextField] = [:]
     init(controller: DictationController, preview: Bool = false) {
@@ -108,7 +109,9 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         let local = column(8)
         let privacy = label("●  PRIVATE BY DESIGN", size: 10, weight: .semibold); privacy.textColor = Palette.mint
         local.addArrangedSubview(privacy); local.addArrangedSubview(label("Your voice stays on this Mac.", size: 11))
-        local.addArrangedSubview(label("⌃  ⌥  Space", size: 15, weight: .medium)); local.addArrangedSubview(label("Start. Speak. Press again.", size: 11))
+        let shortcut = label(controller.shortcutSymbols, size: 15, weight: .medium)
+        sidebarShortcut = shortcut
+        local.addArrangedSubview(shortcut); local.addArrangedSubview(label("Start. Speak. Press again.", size: 11))
         for view in [brand, nav, local] { view.translatesAutoresizingMaskIntoConstraints = false; sidebar.addSubview(view) }
         sidebar.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(sidebar)
         heading.font = .systemFont(ofSize: 32, weight: .bold); heading.textColor = Palette.text
@@ -141,6 +144,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         controller.validationChanged = { [weak self] in if self?.page == 4 { self?.render() } }
     }
     func refreshPermissions() {
+        sidebarShortcut?.stringValue = controller.shortcutSymbols
         let trusted = AXIsProcessTrusted()
         permissionLabel.stringValue = trusted ? "●  ON DEVICE" : "●  PASTE ACCESS NEEDED"
         permissionLabel.textColor = trusted ? Palette.mint : .systemOrange
@@ -204,7 +208,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
             let hero = WaveArtwork(); hero.wantsLayer = true; hero.layer?.cornerRadius = 16
             let title = label("Speak freely.\nKeep your rhythm.", size: 32, weight: .bold)
             let detail = label("A thought, a message, a first draft.\nPlace your cursor, then let your voice take over.", size: 13)
-            let shortcut = label(controller.shortcutTitle == "Control Option Space" ? "⌃  ⌥  Space" : controller.shortcutTitle, size: 15, weight: .semibold); shortcut.textColor = Palette.mint
+            let shortcut = label(controller.shortcutSymbols, size: 15, weight: .semibold); shortcut.textColor = Palette.mint
             for view in [title, detail, shortcut] { view.translatesAutoresizingMaskIntoConstraints = false; hero.addSubview(view) }
             NSLayoutConstraint.activate([hero.heightAnchor.constraint(equalToConstant: 260), title.leadingAnchor.constraint(equalTo: hero.leadingAnchor, constant: 28), title.topAnchor.constraint(equalTo: hero.topAnchor, constant: 28), detail.leadingAnchor.constraint(equalTo: title.leadingAnchor), detail.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 16), shortcut.leadingAnchor.constraint(equalTo: title.leadingAnchor), shortcut.topAnchor.constraint(equalTo: detail.bottomAnchor, constant: 23)])
             fillWidth(hero)
@@ -341,7 +345,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
             let check = NSButton(checkboxWithTitle: title, target: nil, action: nil); check.state = value ? .on : .off; checks[key] = check; body.addArrangedSubview(check)
         }
         let holdHelp = prefs.holdKey == .globe ? "Set Keyboard → Press globe key → Do Nothing to avoid the emoji picker." : "Your chosen hold key is passed through to the app you are using."
-        body.addArrangedSubview(label(holdHelp + " Editing: Control Option R. Paste previous: Control Option V."))
+        body.addArrangedSubview(label("Hold your chosen key by itself. " + holdHelp + " Editing: Control Option R. Paste previous: Control Option V."))
         for (key, title, value) in [("silence", "Silence before hands-free finishes (seconds)", prefs.silenceSeconds), ("maximum", "Maximum recording (seconds)", prefs.maximumSeconds), ("clipboard", "Clipboard recovery delay (seconds)", prefs.clipboardDelay)] {
             let input = NSTextField(string: String(value)); input.widthAnchor.constraint(equalToConstant: 80).isActive = true; fields[key] = input; body.addArrangedSubview(row([label(title), input]))
         }

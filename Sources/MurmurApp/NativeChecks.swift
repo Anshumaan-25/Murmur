@@ -1,10 +1,11 @@
 import AppKit
 import Carbon
+import IOKit.hidsystem
 import MurmurCore
 
 @MainActor enum NativeChecks {
     static func run(audioURL: URL? = nil, withCleanup: Bool = false) async -> [String: Any] {
-        var results: [String: Bool] = [:]
+        var results = await shortcutGestures()
         do {
             let shortcuts = Hotkeys()
             let testKey = UInt32(kVK_F20)
@@ -115,5 +116,121 @@ import MurmurCore
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + link) { results["settings_handler_" + link] = NSWorkspace.shared.urlForApplication(toOpen: url) != nil }
         }
         return ["passed":results.values.allSatisfy { $0 }, "checks":results, "indicator_paint_dispatch_ms":elapsed, "indicator_frame_median_ms":frameMedian, "fixture_pipeline_ms":pipelineTimes, "fixture_cleanup":withCleanup, "fixture_model_uses":modelUses, "scope":"App-owned text controls and named clipboard. No microphone or cross-application grant is exercised."]
+    }
+
+    private static func shortcutGestures() async -> [String: Bool] {
+        let shortcuts = Hotkeys()
+        shortcuts.configure(keyCode: UInt32(kVK_F20))
+        var actions: [String] = []
+        shortcuts.toggle = { actions.append("toggle") }
+        shortcuts.command = { actions.append("edit") }
+        shortcuts.pasteLast = { actions.append("paste") }
+        shortcuts.cancel = { actions.append("cancel") }
+        shortcuts.hold = { actions.append($0 ? "hold" : "release") }
+        shortcuts.holdInterrupted = { actions.append("interrupt") }
+        var results: [String: Bool] = [:]
+
+        func key(_ code: Int, _ flags: CGEventFlags = [], kind: CGEventType = .flagsChanged) {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: kind != .keyUp) else {
+                results["shortcut_keyboard_fixture"] = false
+                return
+            }
+            event.type = kind
+            event.flags = flags
+            shortcuts.handleHoldEvent(kind, event: event)
+        }
+        func carbon(_ binding: Hotkeys.Shortcut, _ kind: Int) {
+            guard let id = shortcuts.eventID(for: binding), sendHotKey(id, kind) == noErr else {
+                results["shortcut_carbon_fixture"] = false
+                return
+            }
+        }
+        func waitForHold() async { try? await Task.sleep(nanoseconds: 240_000_000) }
+        func drainActions() async { await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } } }
+
+        let option = CGEventFlags.maskAlternate.union(CGEventFlags(rawValue: UInt64(NX_DEVICERALTKEYMASK)))
+        let control = CGEventFlags.maskControl.union(CGEventFlags(rawValue: UInt64(NX_DEVICERCTLKEYMASK)))
+        shortcuts.enableHold(true, key: .rightOption)
+        key(kVK_RightOption, option)
+        key(kVK_RightControl, option.union(control))
+        carbon(.toggle, kEventHotKeyPressed)
+        carbon(.toggle, kEventHotKeyReleased)
+        await waitForHold()
+        results["shortcut_option_first_only_toggles"] = actions == ["toggle"]
+        key(kVK_RightOption, control)
+
+        actions = []
+        key(kVK_RightOption, option.union(control))
+        carbon(.command, kEventHotKeyPressed)
+        carbon(.command, kEventHotKeyReleased)
+        await waitForHold()
+        results["shortcut_control_first_only_edits"] = actions == ["edit"]
+        key(kVK_RightOption)
+
+        actions = []
+        key(kVK_RightOption, option)
+        key(kVK_ANSI_E, option, kind: .keyDown)
+        await waitForHold()
+        results["shortcut_option_typing_does_not_record"] = actions.isEmpty
+        key(kVK_RightOption)
+
+        actions = []
+        key(kVK_RightOption, option)
+        await waitForHold()
+        key(kVK_RightOption)
+        await drainActions()
+        results["shortcut_solo_hold_releases_once"] = actions == ["hold", "release"]
+
+        actions = []
+        key(kVK_RightOption, option)
+        await waitForHold()
+        carbon(.pasteLast, kEventHotKeyPressed)
+        carbon(.pasteLast, kEventHotKeyReleased)
+        key(kVK_RightOption)
+        await drainActions()
+        results["shortcut_chord_interrupts_owned_hold_first"] = actions == ["hold", "interrupt", "paste"]
+
+        actions = []
+        key(kVK_RightOption, option)
+        await drainActions()
+        shortcuts.suspend()
+        shortcuts.resume()
+        await waitForHold()
+        results["shortcut_sleep_discards_pending_hold"] = actions.isEmpty
+
+        actions = []
+        carbon(.toggle, kEventHotKeyPressed)
+        carbon(.toggle, kEventHotKeyPressed)
+        carbon(.toggle, kEventHotKeyReleased)
+        carbon(.toggle, kEventHotKeyPressed)
+        carbon(.toggle, kEventHotKeyReleased)
+        await drainActions()
+        results["shortcut_one_action_per_press"] = actions == ["toggle", "toggle"]
+
+        actions = []
+        shortcuts.escape(true)
+        if let old = shortcuts.eventID(for: .cancel) {
+            carbon(.cancel, kEventHotKeyPressed)
+            shortcuts.escape(false)
+            shortcuts.escape(true)
+            let staleRejected = sendHotKey(old, kEventHotKeyPressed) == OSStatus(eventNotHandledErr)
+            carbon(.cancel, kEventHotKeyPressed)
+            await drainActions()
+            results["shortcut_replaced_escape_ignores_stale_events"] = staleRejected && actions == ["cancel"]
+        } else {
+            results["shortcut_replaced_escape_ignores_stale_events"] = false
+        }
+        return results
+    }
+
+    private static func sendHotKey(_ identity: EventHotKeyID, _ kind: Int) -> OSStatus {
+        var event: EventRef?
+        let created = CreateEvent(nil, OSType(kEventClassKeyboard), UInt32(kind), GetCurrentEventTime(), UInt32(kEventAttributeNone), &event)
+        guard created == noErr, let event else { return created }
+        defer { ReleaseEvent(event) }
+        var identity = identity
+        let parameter = SetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), MemoryLayout<EventHotKeyID>.size, &identity)
+        guard parameter == noErr else { return parameter }
+        return SendEventToEventTarget(event, GetApplicationEventTarget())
     }
 }

@@ -30,6 +30,7 @@ import MurmurCore
     var hasDictationActivity: Bool { dictationActivity != nil }
     var measurements = SessionMeasurements()
     var shortcutTitle: String { preferences.toggleKey == 2 ? "Control Option D" : "Control Option Space" }
+    var shortcutSymbols: String { preferences.toggleKey == 2 ? "⌃  ⌥  D" : "⌃  ⌥  Space" }
     var modelPassValidated: Bool { CleanupQualification.load()?.eligible == true && SystemCleanup.available }
     func announce(_ text: String) { status?(text); indicator.show(text, phase: sessions.phase) }
     var provider: any SpeechProvider {
@@ -67,7 +68,7 @@ import MurmurCore
             }
         }
         hotkeys.holdInterrupted = { [weak self] in
-            guard let self, let owned = self.holdSession, owned == self.sessions.id else { return }
+            guard let self, self.sessions.phase == .listening, let owned = self.holdSession, owned == self.sessions.id else { return }
             self.cancel(message: "Hold shortcut interrupted. Start dictation again.")
         }
         microphone.configurationChanged = { [weak self] in
@@ -136,7 +137,15 @@ import MurmurCore
                 MainActor.assumeIsolated {
                     guard let self, self.sessions.phase == .listening else { return }
                     let meter = self.microphone.meter()
-                    if RecordingPolicy.shouldFinish(duration: Date().timeIntervalSince(self.began), silence: ProcessInfo.processInfo.systemUptime - meter.lastVoice, heardSpeech: meter.lastVoice > 0, handsFree: self.preferences.handsFree, silenceLimit: self.preferences.silenceSeconds, maximum: self.preferences.maximumSeconds) { self.finish() }
+                    if RecordingPolicy.shouldFinish(
+                        duration: Date().timeIntervalSince(self.began),
+                        silence: ProcessInfo.processInfo.systemUptime - meter.lastVoice,
+                        heardSpeech: meter.lastVoice > 0,
+                        handsFree: self.preferences.handsFree,
+                        silenceLimit: self.preferences.silenceSeconds,
+                        maximum: self.preferences.maximumSeconds,
+                        holdToTalk: self.holdSession == self.sessions.id
+                    ) { self.finish() }
                 }
             }
             self.timer = timer
@@ -152,6 +161,7 @@ import MurmurCore
     }
     func finish() {
         guard !isSuspended, sessions.phase == .listening, let identity = sessions.id else { return }
+        holdSession = nil
         timer?.invalidate(); timer = nil
         let duration = Date().timeIntervalSince(began)
         let frames = AudioTools.trimmed(microphone.stop()); _ = sessions.transition(.processing, session: identity)

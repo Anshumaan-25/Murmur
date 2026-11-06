@@ -23,10 +23,10 @@ A checkout without downloaded resources still compiles and uses the system speec
 ## Daily use
 
 - Control Option Space starts or finishes dictation. The Settings page can change the toggle to Control Option D.
-- The hold key is configurable: Fn/globe, Right Option, Right Control, Right Shift, or F6. Holding it records until release after Input Monitoring is enabled. Set the system globe action to Do Nothing to avoid the emoji picker.
+- With Input Monitoring enabled, hold Fn/globe, Right Option, Right Control, Right Shift, or F6 by itself. Keydown waits briefly to distinguish a hold from a key combination, then records until release or the duration cap. Set the system globe action to Do Nothing to avoid the emoji picker.
 - Escape cancels a live session. Control Option V inserts the most recent result.
 - Select text and press Control Option R to dictate an editing request. Common casing/tone/shortening edits are deterministic; other requests can use the local model and take several seconds.
-- Hands-free mode ends a recording after speech followed by silence. The duration cap applies in every mode.
+- Hands-free mode ends toggle dictation after speech followed by silence. The duration cap applies in every mode.
 - A changed target receives a copied result. Protected fields receive no injected text. The prior clipboard is restored after a normal paste unless another application copied new content meanwhile.
 
 The hub contains history, vocabulary, spoken expansions, app styles, and settings. History records recognized, cleaned, and delivered text independently. The audio-retention switch is off by default. Optional automatic cleanup uses the installed on-device system model after passing the bundled quality and timing suite. In Settings, choose Validate local cleanup, then enable the qualified option. Qualification expires after an OS/rule/fixture change or seven days. An 800 ms deadline and content/punctuation checks fall back to rules. The slower downloaded model remains available for explicitly requested selected-text edits.

@@ -1,11 +1,18 @@
 import AppKit
 import Carbon
+import IOKit.hidsystem
 import MurmurCore
 
 final class Hotkeys {
-    private enum Shortcut: UInt32, CaseIterable {
-        case toggle = 1, pasteLast, command, cancel
+    enum Shortcut: Hashable, CaseIterable {
+        case toggle, pasteLast, command, cancel
     }
+    private struct Registration {
+        let reference: EventHotKeyRef
+        let id: UInt32
+        var pressed = false
+    }
+    private enum HoldEvent { case press, release, interrupt }
 
     var toggle: (() -> Void)?
     var cancel: (() -> Void)?
@@ -15,27 +22,30 @@ final class Hotkeys {
     var holdInterrupted: (() -> Void)?
 
     private static let signature: OSType = 0x4D55524D
-    private var references: [Shortcut: EventHotKeyRef] = [:]
+    private static var nextRegistrationID: UInt32 = 0
+    private static let holdDelay = 0.18
+    private static let modifiers: CGEventFlags = [.maskControl, .maskAlternate, .maskShift, .maskCommand, .maskSecondaryFn, .maskHelp]
+    private var registrations: [Shortcut: Registration] = [:]
     private var handler: EventHandlerRef?
     private var toggleKeyCode: UInt32 = 49
     private var escapeRequested = false
     private var suspended = false
-    private var shortcutGeneration: UInt64 = 0
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var gesture = HoldGesture()
     private var holdKey = HoldKey.globe
     private var holdEnabled = false
     private var holdGeneration: UInt64 = 0
+    private var pendingHold: UUID?
     private var deliveredHoldDown = false
     private(set) var lastTriggerUptime = ProcessInfo.processInfo.systemUptime
 
     var availabilityMessage: String? {
         if suspended { return "Shortcuts are paused while this Mac session is inactive." }
-        if references[.toggle] == nil {
+        if registrations[.toggle] == nil {
             return "Could not register the dictation shortcut. Choose another shortcut in Settings or start from the menu bar."
         }
-        if references[.pasteLast] == nil || references[.command] == nil {
+        if registrations[.pasteLast] == nil || registrations[.command] == nil {
             return "A paste or editing shortcut could not be registered. Use the corresponding menu bar command."
         }
         if holdEnabled && !holdTapReady {
@@ -52,7 +62,6 @@ final class Hotkeys {
     func configure(keyCode: UInt32) {
         if keyCode != toggleKeyCode {
             toggleKeyCode = keyCode
-            shortcutGeneration &+= 1
             unregister(.toggle)
         }
         refreshShortcuts()
@@ -76,7 +85,6 @@ final class Hotkeys {
     func suspend() {
         guard !suspended else { return }
         suspended = true
-        shortcutGeneration &+= 1
         for shortcut in Shortcut.allCases { unregister(shortcut) }
         removeHoldTap(notifyInterruption: false)
     }
@@ -91,6 +99,10 @@ final class Hotkeys {
         refreshHold()
     }
 
+    func eventID(for shortcut: Shortcut) -> EventHotKeyID? {
+        registrations[shortcut].map { EventHotKeyID(signature: Self.signature, id: $0.id) }
+    }
+
     private func refreshShortcuts() {
         guard !suspended else { return }
         if handler == nil { installHandler() }
@@ -103,43 +115,57 @@ final class Hotkeys {
     }
 
     private func installHandler() {
-        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        let specs = [kEventHotKeyPressed, kEventHotKeyReleased].map {
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32($0))
+        }
         let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
             guard let event, let context else { return OSStatus(eventNotHandledErr) }
             let owner = Unmanaged<Hotkeys>.fromOpaque(context).takeUnretainedValue()
             var identity = EventHotKeyID()
             let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &identity)
-            guard status == noErr, identity.signature == Hotkeys.signature,
-                  let shortcut = Shortcut(rawValue: identity.id),
-                  !owner.suspended, owner.references[shortcut] != nil else { return OSStatus(eventNotHandledErr) }
-            let generation = owner.shortcutGeneration
-            let uptime = GetEventTime(event)
-            DispatchQueue.main.async { [weak owner] in
-                guard let owner, !owner.suspended, owner.shortcutGeneration == generation,
-                      owner.references[shortcut] != nil else { return }
-                owner.lastTriggerUptime = uptime
-                switch shortcut {
-                case .toggle: owner.toggle?()
-                case .pasteLast: owner.pasteLast?()
-                case .command: owner.command?()
-                case .cancel: owner.cancel?()
-                }
-            }
-            return noErr
-        }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handler)
+            guard status == noErr, identity.signature == Hotkeys.signature else { return OSStatus(eventNotHandledErr) }
+            return owner.handleShortcutEvent(id: identity.id, kind: GetEventKind(event), uptime: GetEventTime(event))
+        }, specs.count, specs, Unmanaged.passUnretained(self).toOpaque(), &handler)
         if status != noErr { handler = nil }
     }
 
+    private func handleShortcutEvent(id: UInt32, kind: UInt32, uptime: Double) -> OSStatus {
+        guard !suspended, let shortcut = registrations.first(where: { $0.value.id == id })?.key else {
+            return OSStatus(eventNotHandledErr)
+        }
+        if kind == kEventHotKeyReleased {
+            registrations[shortcut]?.pressed = false
+            return noErr
+        }
+        guard kind == kEventHotKeyPressed else { return OSStatus(eventNotHandledErr) }
+        guard registrations[shortcut]?.pressed == false else { return noErr }
+        registrations[shortcut]?.pressed = true
+        DispatchQueue.main.async { [weak self] in
+            // An old event must not act on a new registration, even for the same chord.
+            guard let self, self.registrations[shortcut]?.id == id else { return }
+            self.lastTriggerUptime = uptime
+            self.deliverHoldEvent(.interrupt, uptime: uptime)
+            switch shortcut {
+            case .toggle: self.toggle?()
+            case .pasteLast: self.pasteLast?()
+            case .command: self.command?()
+            case .cancel: self.cancel?()
+            }
+        }
+        return noErr
+    }
+
     private func register(_ shortcut: Shortcut, key: UInt32, modifiers: UInt32) {
-        guard references[shortcut] == nil else { return }
+        guard registrations[shortcut] == nil else { return }
         var reference: EventHotKeyRef?
-        let identity = EventHotKeyID(signature: Self.signature, id: shortcut.rawValue)
+        Self.nextRegistrationID &+= 1
+        let identity = EventHotKeyID(signature: Self.signature, id: Self.nextRegistrationID)
         let status = RegisterEventHotKey(key, modifiers, identity, GetApplicationEventTarget(), 0, &reference)
-        if status == noErr, let reference { references[shortcut] = reference }
+        if status == noErr, let reference { registrations[shortcut] = Registration(reference: reference, id: identity.id) }
     }
 
     private func unregister(_ shortcut: Shortcut) {
-        if let reference = references.removeValue(forKey: shortcut) { UnregisterEventHotKey(reference) }
+        if let registration = registrations.removeValue(forKey: shortcut) { UnregisterEventHotKey(registration.reference) }
     }
 
     private var holdTapReady: Bool {
@@ -181,8 +207,8 @@ final class Hotkeys {
         CGEvent.tapEnable(tap: port, enable: true)
     }
 
-    private func handleHoldEvent(_ kind: CGEventType, event: CGEvent) {
-        guard !suspended else { return }
+    func handleHoldEvent(_ kind: CGEventType, event: CGEvent) {
+        guard !suspended, holdEnabled else { return }
         if kind == .tapDisabledByTimeout || kind == .tapDisabledByUserInput {
             holdGeneration &+= 1
             _ = gesture.reset()
@@ -194,11 +220,18 @@ final class Hotkeys {
             }
             return
         }
-        guard event.getIntegerValueField(.keyboardEventKeycode) == Int64(holdKey.code) else { return }
+        let flags = event.flags
+        let solo = isSoloHold(flags: flags)
+        guard event.getIntegerValueField(.keyboardEventKeycode) == Int64(holdKey.code) else {
+            if gesture.pressed, kind == .keyDown || (kind == .flagsChanged && !solo) {
+                enqueueHoldEvent(.interrupt, event: event)
+            }
+            return
+        }
         let down: Bool
         if holdKey.isModifier {
             guard kind == .flagsChanged else { return }
-            down = CGEventSource.keyState(.combinedSessionState, key: holdKey.code)
+            down = modifierDown(flags: flags)
         } else {
             guard kind == .keyDown || kind == .keyUp else { return }
             // A repeat after wake or tap recovery is not a new press.
@@ -206,19 +239,72 @@ final class Hotkeys {
             down = kind == .keyDown
         }
         guard let transition = gesture.change(to: down) else { return }
+        if transition {
+            if solo { enqueueHoldEvent(.press, event: event) }
+        } else {
+            enqueueHoldEvent(.release, event: event)
+        }
+    }
+
+    private func modifierDown(flags: CGEventFlags) -> Bool {
+        if holdKey == .globe { return flags.contains(.maskSecondaryFn) }
+        let sides = modifierSides
+        let raw = flags.rawValue
+        if raw & (sides.left | sides.right) != 0 { return raw & sides.right != 0 }
+        // Virtual keyboards can omit side bits. Use live state only in that case.
+        return flags.contains(sides.mask) && CGEventSource.keyState(.combinedSessionState, key: holdKey.code)
+    }
+
+    private var modifierSides: (mask: CGEventFlags, left: UInt64, right: UInt64) {
+        switch holdKey {
+        case .rightOption: return (.maskAlternate, UInt64(NX_DEVICELALTKEYMASK), UInt64(NX_DEVICERALTKEYMASK))
+        case .rightControl: return (.maskControl, UInt64(NX_DEVICELCTLKEYMASK), UInt64(NX_DEVICERCTLKEYMASK))
+        case .rightShift: return (.maskShift, UInt64(NX_DEVICELSHIFTKEYMASK), UInt64(NX_DEVICERSHIFTKEYMASK))
+        case .globe, .f6: return (.maskSecondaryFn, 0, 0)
+        }
+    }
+
+    private func isSoloHold(flags: CGEventFlags) -> Bool {
+        let sides = modifierSides
+        return flags.intersection(Self.modifiers).subtracting(sides.mask).isEmpty && flags.rawValue & sides.left == 0
+    }
+
+    private func enqueueHoldEvent(_ kind: HoldEvent, event: CGEvent) {
         let generation = holdGeneration
         let uptime = Double(event.timestamp) / 1_000_000_000
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.suspended, self.holdGeneration == generation else { return }
-            self.lastTriggerUptime = uptime
-            self.deliveredHoldDown = transition
-            self.hold?(transition)
+            self.deliverHoldEvent(kind, uptime: uptime)
+        }
+    }
+
+    private func deliverHoldEvent(_ kind: HoldEvent, uptime: Double) {
+        switch kind {
+        case .press:
+            // Wait briefly so a modifier used as part of a chord cannot start dictation.
+            let candidate = UUID()
+            pendingHold = candidate
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.holdDelay) { [weak self] in
+                guard let self, self.pendingHold == candidate, self.gesture.pressed else { return }
+                self.pendingHold = nil
+                self.deliveredHoldDown = true
+                self.lastTriggerUptime = uptime
+                self.hold?(true)
+            }
+        case .release, .interrupt:
+            pendingHold = nil
+            guard deliveredHoldDown else { return }
+            deliveredHoldDown = false
+            lastTriggerUptime = uptime
+            if kind == .release { hold?(false) }
+            else { holdInterrupted?() }
         }
     }
 
     private func resetHold(notifyInterruption: Bool) {
         holdGeneration &+= 1
         _ = gesture.reset()
+        pendingHold = nil
         let interrupted = deliveredHoldDown
         deliveredHoldDown = false
         if interrupted && notifyInterruption { holdInterrupted?() }

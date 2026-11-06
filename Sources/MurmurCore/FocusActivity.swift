@@ -5,9 +5,9 @@ public struct FocusActivity: Sendable {
     public private(set) var unchanged = true
     public init() {}
     public mutating func invalidate() { unchanged = false }
-    public mutating func key(_ code: UInt16, dictationChord: Bool, toggleKey: UInt16, holdKey: UInt16?) {
+    public mutating func key(_ code: UInt16, dictationChord: Bool, toggleKey: UInt16, holdKey: UInt16?, standaloneHold: Bool = true) {
         if dictationChord && [toggleKey, 9, 15].contains(code) { return }
-        if code == holdKey { return }
+        if standaloneHold && code == holdKey { return }
         invalidate()
     }
 }

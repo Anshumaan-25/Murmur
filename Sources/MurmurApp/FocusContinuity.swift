@@ -28,7 +28,8 @@ final class FocusContinuity {
             if kind == .keyDown {
                 let flags = event.flags
                 let chord = flags.contains([.maskControl, .maskAlternate]) && flags.intersection([.maskCommand, .maskShift]).isEmpty
-                owner.activity.key(UInt16(clamping: event.getIntegerValueField(.keyboardEventKeycode)), dictationChord: chord, toggleKey: owner.toggleKey, holdKey: owner.holdKey)
+                let standalone = flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift, .maskHelp]).isEmpty
+                owner.activity.key(UInt16(clamping: event.getIntegerValueField(.keyboardEventKeycode)), dictationChord: chord, toggleKey: owner.toggleKey, holdKey: owner.holdKey, standaloneHold: standalone)
             } else { owner.activity.invalidate() }
             return Unmanaged.passUnretained(event)
         }, userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return }

@@ -103,3 +103,11 @@ Keydown starts in the menu bar and creates its window and audio engine on demand
 Sleep, display sleep, user switching, and shutdown stop pending dictation, restore any temporary clipboard write, and suspend shortcut listeners. Shortcuts resume after all interruptions clear. An audio route change that stops the engine cancels the recording so a fresh capture can use the new device. The app tells macOS about active dictation while allowing idle sleep.
 
 All 229 core checks, native checks, and four external paste cases passed. Native checks exercised overlapping lifecycle notifications, clipboard restoration, and a Carbon shortcut conflict followed by recovery. The installed app started without a normal window or foreground activation. It retained its privacy grants and measured no CPU time change over a 10-second idle sample at 48.4 MiB resident memory. Physical sleep, device switching, and a fresh login remain manual checks.
+
+## macOS shortcut reliability — 2026-11-06
+
+The installed setup uses Right Option for hold-to-talk alongside Control Option Space. The prior event path started recording on Right Option before macOS dispatched the toggle, edit, or paste chord. Keydown now waits 180 ms for a standalone hold and cancels it when another key joins the combination. A Keydown chord interrupts an already active hold before executing. The existing shortcut choices are preserved.
+
+Carbon presses now fire once per press and release cycle. Each registration has its own identity so queued events cannot act after that binding is replaced. Hold modifier detection reads the side-specific event flags. Hold recordings ignore hands-free silence and still honor the duration cap. The sidebar displays the selected toggle chord.
+
+The checkpoint passed 232 core checks and the native suite, including both modifier orders, Option typing, a standalone hold, chord precedence, suspension during a pending hold, repeat presses, and a stale Escape event. The installed app reported its microphone, Accessibility, and Input Monitoring grants with no shortcut warning. Native shortcut checks use injected events. Physical keyboard testing remains a manual check.
