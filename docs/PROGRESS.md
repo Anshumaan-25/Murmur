@@ -95,3 +95,11 @@ The gate passes 229 core and 16 native checks. External fixtures now include a n
 ## Keydown rename — 2026-11-06
 
 Renamed the app, menu items, dictation indicator, installation bundle, and app commands to Keydown. Verified that the running app at `/Applications/Keydown.app` retains Microphone, Accessibility, and Input Monitoring grants. The saved preferences fingerprint and all four local data table counts matched before and after installation. The old app bundle was archived in the project’s ignored `.local` directory. The checkpoint passed all 229 core checks, native control tests, clean-room scan, and strict signature verification.
+
+## macOS background integration — 2026-11-06
+
+Keydown starts in the menu bar and creates its window and audio engine on demand. Settings now shows the macOS login-item approval state and links to Login Items. Registration remains opt-in. Shortcut registration failures are visible in Settings and recoverable when availability changes.
+
+Sleep, display sleep, user switching, and shutdown stop pending dictation, restore any temporary clipboard write, and suspend shortcut listeners. Shortcuts resume after all interruptions clear. An audio route change that stops the engine cancels the recording so a fresh capture can use the new device. The app tells macOS about active dictation while allowing idle sleep.
+
+All 229 core checks, native checks, and four external paste cases passed. Native checks exercised overlapping lifecycle notifications, clipboard restoration, and a Carbon shortcut conflict followed by recovery. The installed app started without a normal window or foreground activation. It retained its privacy grants and measured no CPU time change over a 10-second idle sample at 48.4 MiB resident memory. Physical sleep, device switching, and a fresh login remain manual checks.

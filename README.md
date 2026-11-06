@@ -6,7 +6,9 @@ Requires macOS 26 or later and Swift command line tools. Build with `make app`, 
 
 Before granting permissions, run `bash scripts/create_signing_identity.sh` then rebuild. This creates a private project keychain rather than using the login keychain. Without that identity, builds use ad hoc signatures and macOS may require renewed grants after a rebuild. Keep the application at the same path.
 
-Enable microphone access when prompted. Enable Keydown in Accessibility to paste into another application. Input Monitoring is optional for the globe/function hold shortcut. Onboarding opens the relevant System Settings pane. Enable launch at login from the hub if desired.
+Enable microphone access when prompted. Enable Keydown in Accessibility to paste into another application. Input Monitoring supports hold-to-talk and insertion into editors that hide their text field. Onboarding opens the relevant System Settings pane.
+
+Keydown runs in the menu bar when its window is closed. Enable **Open at Login** in Keydown’s Settings to start it with your macOS session. Settings shows whether the login item is enabled or awaiting approval and links to macOS Login Items. Sleep, display sleep, and user switching pause dictation and restore the shortcuts when the session becomes active again. Start a fresh recording after an interruption.
 
 Audio is transient by default. Recognition and editing providers are local. Model downloads require an explicit confirmation and checksum validation. No accounts or telemetry are included.
 

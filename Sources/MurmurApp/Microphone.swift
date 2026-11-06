@@ -3,12 +3,14 @@ import CoreAudio
 import MurmurCore
 
 final class Microphone {
-    private var engine = AVAudioEngine()
+    private var engine: AVAudioEngine?
+    private var configurationObserver: NSObjectProtocol?
     private let lock = NSLock()
     private var samples: [Float] = []
     private var running = false
     private var generation = UUID()
-    private var converter: AVAudioConverter?
+    var configurationChanged: (() -> Void)?
+    var isCapturing: Bool { engine?.isRunning == true }
     private var levelValue: Float = 0
     private var audioUptime: Double = 0
     private var voiceUptime: Double = 0
@@ -20,7 +22,7 @@ final class Microphone {
     var inputDevice: AudioDeviceID = 0
     func start() throws {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw MurmurError.unavailable("Enable Keydown microphone access in System Settings.") }
-        engine = AVAudioEngine()
+        let engine = AVAudioEngine()
         let node = engine.inputNode
         if inputDevice != 0, let unit = node.audioUnit {
             var device = inputDevice
@@ -32,7 +34,7 @@ final class Microphone {
         let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AudioTools.rate, channels: 1, interleaved: false)!
         guard let converter = AVAudioConverter(from: source, to: target) else { throw MurmurError.invalidAudio }
         let generation = UUID()
-        self.converter = converter; lock.lock(); samples = []; samples.reserveCapacity(1_920_000); levelValue = 0; voiceUptime = 0; audioUptime = 0; running = true; self.generation = generation; lock.unlock()
+        lock.lock(); samples = []; samples.reserveCapacity(1_920_000); levelValue = 0; voiceUptime = 0; audioUptime = 0; running = true; self.generation = generation; lock.unlock()
         node.installTap(onBus: 0, bufferSize: 2048, format: source) { [weak self] input, _ in
             guard let self else { return }
             guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: AVAudioFrameCount(Double(input.frameLength) * target.sampleRate / source.sampleRate + 128)) else { return }
@@ -50,14 +52,37 @@ final class Microphone {
             }
             self.lock.unlock()
         }
+        self.engine = engine
+        configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self, weak engine] _ in
+            // Audio-engine teardown must occur outside the engine's notification callback.
+            DispatchQueue.main.async { [weak self, weak engine] in
+                guard let self, let engine, self.engine === engine, !engine.isRunning else { return }
+                self.configurationChanged?()
+            }
+        }
         engine.prepare()
-        do { try engine.start() } catch { engine.inputNode.removeTap(onBus: 0); running = false; throw error }
+        do { try engine.start() } catch { cancel(); throw error }
     }
-    func stop() -> [AudioFrame] {
-        lock.lock(); let wasRunning = running; running = false; levelValue = 0; lock.unlock()
-        if wasRunning { engine.stop(); engine.inputNode.removeTap(onBus: 0) }
-        lock.lock(); let result = AudioTools.frames(samples); samples = []; lock.unlock()
-        return result
+
+    private func endCapture() -> [Float] {
+        lock.lock()
+        running = false
+        levelValue = 0
+        let captured = samples
+        samples = []
+        lock.unlock()
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+            self.configurationObserver = nil
+        }
+        if let engine {
+            self.engine = nil
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        return captured
     }
-    func cancel() { _ = stop() }
+
+    func stop() -> [AudioFrame] { AudioTools.frames(endCapture()) }
+    func cancel() { _ = endCapture() }
 }

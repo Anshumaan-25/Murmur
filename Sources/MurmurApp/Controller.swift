@@ -25,6 +25,9 @@ import MurmurCore
     var lastText = ""
     var commandMode = false
     var holdSession: UUID?
+    private(set) var isSuspended = false
+    private var dictationActivity: NSObjectProtocol?
+    var hasDictationActivity: Bool { dictationActivity != nil }
     var measurements = SessionMeasurements()
     var shortcutTitle: String { preferences.toggleKey == 2 ? "Control Option D" : "Control Option Space" }
     var modelPassValidated: Bool { CleanupQualification.load()?.eligible == true && SystemCleanup.available }
@@ -63,11 +66,20 @@ import MurmurCore
                 self.holdSession = nil
             }
         }
+        hotkeys.holdInterrupted = { [weak self] in
+            guard let self, let owned = self.holdSession, owned == self.sessions.id else { return }
+            self.cancel(message: "Hold shortcut interrupted. Start dictation again.")
+        }
+        microphone.configurationChanged = { [weak self] in
+            guard let self, self.sessions.phase == .listening else { return }
+            self.cancel(message: "Microphone changed. Start dictation again.")
+        }
         indicator.inputLevel = { [weak microphone] in microphone?.meter().rms ?? 0 }
         applyPreferences()
         retentionTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-            Task { @MainActor in guard let self else { return }; try? self.history?.prune(self.preferences.retention); self.pruneRecordings() }
+            Task { @MainActor in guard let self, !self.isSuspended else { return }; try? self.history?.prune(self.preferences.retention); self.pruneRecordings() }
         }
+        retentionTimer?.tolerance = 300
     }
     func pruneRecordings() {
         let directory = Preferences.directory.appendingPathComponent("Recordings")
@@ -85,6 +97,7 @@ import MurmurCore
         do { try preferences.save(); try history?.prune(preferences.retention); pruneRecordings() } catch { announce("Could not save local preferences.") }
     }
     func validateCleanup() {
+        guard !isSuspended else { return }
         guard validationTask == nil, ![CapturePhase.listening, .processing, .inserting].contains(sessions.phase) else { announce("Finish the current task before validation."); return }
         status?("Checking on-device cleanup against the text suite…"); hotkeys.escape(true)
         validationTask = Task {
@@ -94,15 +107,19 @@ import MurmurCore
                 try Task.checkCancellation(); try report.qualification.save()
                 if !report.qualification.eligible { preferences.useModel = false; try preferences.save() }
                 status?(report.qualification.eligible ? "Local cleanup passed its quality and timing gates." : "Local cleanup did not qualify; rules remain active.")
-            } catch { status?(error is CancellationError ? "Validation cancelled" : error.localizedDescription) }
+            } catch {
+                if !isSuspended { status?(error is CancellationError ? "Validation cancelled" : error.localizedDescription) }
+            }
         }
     }
     func toggle(triggerUptime: Double? = nil) { if sessions.phase == .listening { finish() } else { start(triggerUptime: triggerUptime) } }
     func start(command: Bool = false, triggerUptime: Double? = nil) {
+        guard !isSuspended else { return }
         guard validationTask == nil else { announce("Cleanup validation is running. Escape cancels it."); return }
         guard sessions.phase != .inserting && sessions.phase != .listening else { return }
         let triggered = triggerUptime ?? ProcessInfo.processInfo.systemUptime
-        activeTask?.cancel(); destinationTask?.cancel(); focusContinuity?.stop(); sessions.cancel(); commandMode = command
+        stopWork()
+        commandMode = command
         let identity = sessions.begin(); began = Date()
         announce(command ? "Preparing edit…" : "Starting microphone…")
         measurements.feedback(trigger: triggered, painted: ProcessInfo.processInfo.systemUptime)
@@ -111,21 +128,30 @@ import MurmurCore
         guard !target.protected else { focusContinuity?.stop(); _ = sessions.transition(.failed, session: identity); announce("Protected fields cannot receive dictation."); return }
         if command && target.selectedText.isEmpty && target.element != nil { focusContinuity?.stop(); _ = sessions.transition(.failed, session: identity); announce("Select text before starting an editing command."); return }
         destination = target; destinationTask = Task { try await Destination.prepared(target) }; hotkeys.escape(true)
+        dictationActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Keydown dictation")
         do {
             try microphone.start()
             announce(command ? "Speak your edit…" : "Listening…")
-            timer?.invalidate()
-            timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-                Task { @MainActor in
+            let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
                     guard let self, self.sessions.phase == .listening else { return }
                     let meter = self.microphone.meter()
                     if RecordingPolicy.shouldFinish(duration: Date().timeIntervalSince(self.began), silence: ProcessInfo.processInfo.systemUptime - meter.lastVoice, heardSpeech: meter.lastVoice > 0, handsFree: self.preferences.handsFree, silenceLimit: self.preferences.silenceSeconds, maximum: self.preferences.maximumSeconds) { self.finish() }
                 }
             }
-        } catch { destinationTask?.cancel(); focusContinuity?.stop(); _ = sessions.transition(.failed, session: identity); announce(error.localizedDescription); hotkeys.escape(false) }
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        } catch {
+            destinationTask?.cancel()
+            focusContinuity?.stop()
+            endDictationActivity()
+            _ = sessions.transition(.failed, session: identity)
+            announce(error.localizedDescription)
+            hotkeys.escape(false)
+        }
     }
     func finish() {
-        guard sessions.phase == .listening, let identity = sessions.id else { return }
+        guard !isSuspended, sessions.phase == .listening, let identity = sessions.id else { return }
         timer?.invalidate(); timer = nil
         let duration = Date().timeIntervalSince(began)
         let frames = AudioTools.trimmed(microphone.stop()); _ = sessions.transition(.processing, session: identity)
@@ -138,7 +164,10 @@ import MurmurCore
             try? AudioTools.wav(frames).write(to: directory.appendingPathComponent(identity.uuidString + ".wav"), options: .atomic)
         }
         activeTask = Task {
-            defer { continuity?.stop() }
+            defer {
+                continuity?.stop()
+                if sessions.id == identity { endDictationActivity() }
+            }
             var recognized = ""; var prepared = ""; var app = initialTarget?.bundle ?? ""
             do {
                 let target: Destination?
@@ -197,10 +226,70 @@ import MurmurCore
         }
     }
     func pasteLast() {
-        guard !lastText.isEmpty, sessions.phase != .listening && sessions.phase != .processing && sessions.phase != .inserting else { return }
+        guard !isSuspended, !lastText.isEmpty, sessions.phase != .listening && sessions.phase != .processing && sessions.phase != .inserting else { return }
+        activeTask?.cancel()
+        focusContinuity?.stop()
+        inserter.finishRestoration()
         let continuity = FocusContinuity(pid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0, toggleKey: UInt16(clamping: preferences.toggleKey), holdKey: preferences.holdEnabled ? UInt16(preferences.holdKey.code) : nil)
-        let target = Destination.capture(); let text = lastText
-        Task { defer { continuity.stop() }; do { let resolved = try await Destination.prepared(target); let result = try await inserter.insert(text, destination: resolved, delay: preferences.clipboardDelay, continuity: continuity); announce(result == .inserted ? "Inserted previous text" : inserter.lastReason.explanation) } catch { announce(error.localizedDescription) } }
+        focusContinuity = continuity
+        let target = Destination.capture()
+        let text = lastText
+        activeTask = Task {
+            defer { continuity.stop() }
+            do {
+                try Task.checkCancellation()
+                let resolved = try await Destination.prepared(target)
+                let result = try await inserter.insert(text, destination: resolved, delay: preferences.clipboardDelay, continuity: continuity)
+                try Task.checkCancellation()
+                announce(result == .inserted ? "Inserted previous text" : inserter.lastReason.explanation)
+            } catch {
+                if !Task.isCancelled { announce(error.localizedDescription) }
+            }
+        }
     }
-    func cancel() { validationTask?.cancel(); timer?.invalidate(); timer = nil; activeTask?.cancel(); destinationTask?.cancel(); focusContinuity?.stop(); microphone.cancel(); inserter.finishRestoration(); sessions.cancel(); hotkeys.escape(false); announce("Cancelled") }
+
+    func setSuspended(_ suspended: Bool) {
+        guard suspended != isSuspended else { return }
+        isSuspended = suspended
+        if suspended {
+            hotkeys.suspend()
+            stopWork()
+            indicator.hide()
+            status?("Dictation paused")
+        } else {
+            sessions.reset()
+            hotkeys.resume()
+            status?("Ready · \(shortcutTitle)")
+        }
+    }
+
+    func cancel(message: String = "Cancelled") {
+        stopWork()
+        if !isSuspended { announce(message) }
+    }
+
+    private func stopWork() {
+        sessions.cancel()
+        holdSession = nil
+        validationTask?.cancel()
+        timer?.invalidate()
+        timer = nil
+        activeTask?.cancel()
+        activeTask = nil
+        destinationTask?.cancel()
+        destinationTask = nil
+        destination = nil
+        focusContinuity?.stop()
+        focusContinuity = nil
+        microphone.cancel()
+        inserter.finishRestoration()
+        hotkeys.escape(false)
+        endDictationActivity()
+    }
+
+    private func endDictationActivity() {
+        guard let activity = dictationActivity else { return }
+        ProcessInfo.processInfo.endActivity(activity)
+        dictationActivity = nil
+    }
 }

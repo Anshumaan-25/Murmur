@@ -75,12 +75,15 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     var hotkeyPicker = NSPopUpButton()
     var holdPicker = NSPopUpButton()
     var enginePicker = NSPopUpButton()
+    private weak var startupStatus: NSTextField?
+    private weak var startupButton: ActionButton?
+    private weak var shortcutWarning: NSTextField?
     var checks: [String: NSButton] = [:]
     var fields: [String: NSTextField] = [:]
     init(controller: DictationController, preview: Bool = false) {
         self.controller = controller; self.preview = preview
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1140, height: 820), styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = "Keydown"; window.minSize = NSSize(width: 1040, height: 760); window.isReleasedWhenClosed = false
+        window.title = "Keydown"; window.minSize = NSSize(width: 1040, height: 760); window.isReleasedWhenClosed = false; window.isRestorable = false
         window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden; window.appearance = NSAppearance(named: .darkAqua); window.backgroundColor = Palette.background; window.contentView = content
         super.init(window: window)
         buildShell(); window.center(); render()
@@ -143,6 +146,12 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         permissionLabel.textColor = trusted ? Palette.mint : .systemOrange
         permissionButton?.isHidden = trusted
         permissionButton?.toolTip = "Allow Keydown in System Settings → Privacy & Security → Accessibility to insert text at your cursor."
+        if page == 4 {
+            let message = controller.hotkeys.availabilityMessage
+            shortcutWarning?.stringValue = message ?? ""
+            shortcutWarning?.isHidden = message == nil
+            refreshStartupStatus()
+        }
     }
     func dictateFromHub() {
         window?.orderOut(nil)
@@ -301,6 +310,13 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         body.addArrangedSubview(label(permissionText))
         body.addArrangedSubview(label("Automatic insertion needs Accessibility. If delivery falls back to copying, the indicator tells you why."))
         body.addArrangedSubview(row([ActionButton("Enable microphone") { AVCaptureDevice.requestAccess(for: .audio) { _ in } }, ActionButton("Accessibility…") { Self.privacy("Privacy_Accessibility") }, ActionButton("Input Monitoring…") { Self.privacy("Privacy_ListenEvent") }]))
+        body.addArrangedSubview(label("OPEN AT LOGIN", size: 10, weight: .semibold))
+        let loginStatus = label("")
+        let loginButton = ActionButton("Open at Login") {}
+        startupStatus = loginStatus
+        startupButton = loginButton
+        body.addArrangedSubview(loginStatus)
+        body.addArrangedSubview(row([loginButton, ActionButton("Login Items Settings…") { SMAppService.openSystemSettingsLoginItems() }]))
         micPicker = NSPopUpButton(); micPicker.addItem(withTitle: "System default microphone"); micIDs = [0]
         for device in Self.microphones() { micPicker.addItem(withTitle: device.1); micIDs.append(device.0) }
         micPicker.selectItem(at: micIDs.firstIndex(of: prefs.microphone) ?? 0)
@@ -313,6 +329,10 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         body.addArrangedSubview(row([label("History"), retentionPicker]))
         hotkeyPicker = NSPopUpButton(); hotkeyPicker.addItems(withTitles: ["Control Option Space", "Control Option D"]); hotkeyPicker.selectItem(at: prefs.toggleKey == 2 ? 1 : 0)
         body.addArrangedSubview(row([label("Toggle shortcut"), hotkeyPicker]))
+        let warning = label("")
+        warning.textColor = .systemOrange
+        shortcutWarning = warning
+        body.addArrangedSubview(warning)
         holdPicker = NSPopUpButton(); holdPicker.addItems(withTitles: HoldKey.allCases.map(\.title)); holdPicker.selectItem(at: HoldKey.allCases.firstIndex(of: prefs.holdKey) ?? 0)
         body.addArrangedSubview(row([label("Hold-to-talk key"), holdPicker]))
         enginePicker = NSPopUpButton(); enginePicker.addItems(withTitles: SpeechEngine.allCases.map(\.title)); enginePicker.selectItem(at: SpeechEngine.allCases.firstIndex(of: prefs.speechEngine) ?? 0)
@@ -334,7 +354,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         body.addArrangedSubview(ActionButton(controller.validationTask == nil ? "Validate local cleanup" : "Validation in progress…") { [weak self] in self?.controller.validateCleanup() })
         body.addArrangedSubview(ActionButton("Refresh permission status") { [weak self] in self?.render() })
         if prefs.speechEngine == .systemLegacy { body.addArrangedSubview(ActionButton("Enable system Speech Recognition") { SFSpeechRecognizer.requestAuthorization { _ in } }) }
-        body.addArrangedSubview(row([ActionButton("Start at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off")") { [weak self] in self?.toggleStartup() }, ActionButton("Choose speech model…") { [weak self] in self?.chooseSpeechModel() }, ActionButton("Choose decoder…") { [weak self] in self?.chooseDecoder() }]))
+        body.addArrangedSubview(row([ActionButton("Choose speech model…") { [weak self] in self?.chooseSpeechModel() }, ActionButton("Choose decoder…") { [weak self] in self?.chooseDecoder() }]))
         let scroller = scroll(body); fillWidth(scroller); scroller.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
         body.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([body.leadingAnchor.constraint(equalTo: scroller.contentView.leadingAnchor, constant: 16), body.topAnchor.constraint(equalTo: scroller.contentView.topAnchor, constant: 16), body.widthAnchor.constraint(equalTo: scroller.contentView.widthAnchor, constant: -32)])
@@ -350,7 +370,57 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         if category == "Privacy_ListenEvent", !CGPreflightListenEventAccess() { _ = CGRequestListenEventAccess() }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + category) { NSWorkspace.shared.open(url) }
     }
-    func toggleStartup() { do { if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() }; render() } catch { statusLabel.stringValue = error.localizedDescription } }
+    private func refreshStartupStatus() {
+        guard let statusLabel = startupStatus, let button = startupButton else { return }
+        guard Bundle.main.bundleURL.pathExtension == "app" else {
+            statusLabel.stringValue = "Open the Keydown app bundle to set up a login item."
+            button.isEnabled = false
+            return
+        }
+        let status = SMAppService.mainApp.status
+        switch status {
+        case .enabled:
+            statusLabel.stringValue = "On. Keydown starts in the menu bar when you log in."
+            button.title = "Disable Open at Login"
+        case .notRegistered:
+            statusLabel.stringValue = "Off. Keydown can start in the menu bar when you log in."
+            button.title = "Enable Open at Login"
+        case .requiresApproval:
+            statusLabel.stringValue = "Approval needed. Allow Keydown in Login Items to start it automatically."
+            button.title = "Remove Login Item"
+        case .notFound:
+            statusLabel.stringValue = "No login item found. Add Keydown to start it at login."
+            button.title = "Enable Open at Login"
+        @unknown default:
+            statusLabel.stringValue = "Login item status is unavailable. Check Login Items in System Settings."
+            button.title = "Open at Login"
+        }
+        let canRegister = status == .notRegistered || status == .notFound
+        button.isEnabled = canRegister || status == .enabled || status == .requiresApproval
+        button.perform = { [weak self] in self?.setStartupEnabled(canRegister) }
+        button.invalidateIntrinsicContentSize()
+    }
+    private func setStartupEnabled(_ enabled: Bool) {
+        let service = SMAppService.mainApp
+        defer { refreshStartupStatus() }
+        do {
+            switch (enabled, service.status) {
+            case (true, .notRegistered), (true, .notFound):
+                try service.register()
+            case (false, .enabled), (false, .requiresApproval):
+                try service.unregister()
+            default:
+                return
+            }
+            statusLabel.stringValue = "Login item updated."
+        } catch {
+            if enabled, service.status == .requiresApproval {
+                statusLabel.stringValue = "Approve Keydown in Login Items to start it automatically."
+            } else {
+                statusLabel.stringValue = "Couldn’t update the login item. \(error.localizedDescription)"
+            }
+        }
+    }
     func chooseSpeechModel() { let panel = NSOpenPanel(); if panel.runModal() == .OK, let path = panel.url?.path { controller.preferences.customSpeechModel = path; controller.applyPreferences(); statusLabel.stringValue = "Local speech model selected" } }
     func chooseDecoder() { let panel = NSOpenPanel(); if panel.runModal() == .OK, let path = panel.url?.path { controller.preferences.customSpeechExecutable = path; controller.applyPreferences(); statusLabel.stringValue = "Local decoder selected" } }
     func saveSettings() {

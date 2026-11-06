@@ -11,9 +11,9 @@ These checks require the signed app's operating-system grants. No permission sta
 7. Grant Input Monitoring, enable the globe/function hold shortcut, and set the system globe action to Do Nothing in Keyboard settings. Confirm key release finishes capture and ordinary typing still works.
 8. Exercise the indicator on a different Space and over a fullscreen app. It must not become the focused window. Drag it and relaunch to check saved docking.
 9. Disable Wi-Fi after model setup. Dictate several utterances and use every local editing feature. Confirm no additional assets are requested.
-10. Test launch-at-login registration from a stable app location. Check settings links reach the intended privacy category; macOS can route deep links to the general privacy page.
+10. From an installed app, enable Open at Login in Settings. Check the reported state in Keydown and macOS Login Items. On a fresh login, confirm the menu bar icon appears without a window. Open Keydown from its menu, then close the window and confirm the shortcut still works.
 
-11. Try each physical hold-key option. Repeated key-down events must start once; release must end only the recording started by that hold. Disabling/reconfiguring a held trigger must release its owned session. Ordinary toggle capture must survive an unrelated hold-key release.
+11. Try each physical hold-key option. Repeated key-down events must start once and release must end only the recording started by that hold. Disabling or reconfiguring a held trigger must cancel its recording. Ordinary toggle capture must survive an unrelated hold-key release.
 12. In Settings, validate local cleanup and enable it only after qualification. Try spoken punctuation, instructions that should be dictated as text, names, numbers, and lists. Confirm that a slow model falls back promptly. Revalidate after OS or fixture changes.
 13. Try dictation in a code editor or terminal. Exact syntax should be preserved when the option is on; ordinary prose cleanup should return when it is disabled. Confirm inferred categories and per-app styles suit your use.
 14. After several real dictations, inspect this-launch timing in Settings. Record microphone-to-insertion latency separately from the app-owned synthetic fixture results.
@@ -23,3 +23,4 @@ These checks require the signed app's operating-system grants. No permission sta
 
 17. In a custom editor with no accessible text field, keep the original app/window and cursor undisturbed while dictating. Confirm automatic paste. Repeat with a click or cursor key while recognition runs; confirm copied fallback. Input Monitoring is required for this focus-continuity path.
 18. Run `/Applications/Keydown.app/Contents/MacOS/Keydown --diagnostics --check-delivery` with the intended app focused. It asks the existing GUI process to evaluate readiness and prints metadata only; `posted_input` must be false.
+19. Put the Mac to sleep or switch macOS users during a disposable dictation. On return, confirm the recording has stopped, the indicator has cleared, and the interrupted text does not paste. Try the toggle and the configured hold shortcut again. Repeat while recognition is in progress and while changing the input device.

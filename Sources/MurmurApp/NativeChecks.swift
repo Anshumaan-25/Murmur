@@ -1,9 +1,44 @@
 import AppKit
+import Carbon
 import MurmurCore
 
 @MainActor enum NativeChecks {
     static func run(audioURL: URL? = nil, withCleanup: Bool = false) async -> [String: Any] {
         var results: [String: Bool] = [:]
+        do {
+            let shortcuts = Hotkeys()
+            let testKey = UInt32(kVK_F20)
+            shortcuts.configure(keyCode: testKey)
+            results["shortcut_initial_registration"] = shortcuts.availabilityMessage == nil
+            shortcuts.suspend()
+
+            var blocker: EventHotKeyRef?
+            let testIdentity = EventHotKeyID(signature: 0x4B44544B, id: 1)
+            let reservation = RegisterEventHotKey(testKey, UInt32(controlKey | optionKey), testIdentity, GetApplicationEventTarget(), 0, &blocker)
+            results["shortcut_suspend_releases_chord"] = reservation == noErr && blocker != nil
+            if let blocker {
+                shortcuts.resume()
+                results["shortcut_registration_conflict_reported"] = shortcuts.availabilityMessage?.hasPrefix("Could not register the dictation shortcut.") == true
+                UnregisterEventHotKey(blocker)
+                shortcuts.refresh()
+                results["shortcut_registration_recovers"] = shortcuts.availabilityMessage == nil
+            }
+        }
+        do {
+            let center = NotificationCenter()
+            var changes: [Bool] = []
+            let lifecycle = BackgroundLifecycle(center: center) { changes.append($0) }
+            withExtendedLifetime(lifecycle) {
+                center.post(name: NSWorkspace.willSleepNotification, object: nil)
+                center.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+                center.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+                center.post(name: NSWorkspace.didWakeNotification, object: nil)
+                center.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+                results["background_waits_for_all_interruptions"] = changes == [true]
+                center.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+                results["background_resumes_once"] = changes == [true, false]
+            }
+        }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 220), styleMask: [.titled], backing: .buffered, defer: false)
         let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 220))
         window.contentView = text; text.isEditable = true; text.isRichText = false; text.allowsUndo = true
@@ -29,6 +64,18 @@ import MurmurCore
             results["new_owner_preserved"] = board.string(forType: .string) == "A newer copy"
             do { try await delivery.deliver("Failure fixture", board: board, delay: 0.02) { throw MurmurError.empty }; results["failure_recovery"] = false }
             catch { results["failure_recovery"] = board.string(forType: .string) == "A newer copy" }
+
+            let center = NotificationCenter()
+            let lifecycle = BackgroundLifecycle(center: center) { suspended in
+                if suspended { delivery.finish() }
+            }
+            try await delivery.deliver("Clipboard during interruption", board: board, delay: 0.05) {
+                DispatchQueue.main.async {
+                    center.post(name: NSWorkspace.willSleepNotification, object: nil)
+                    results["background_restores_pending_clipboard"] = board.string(forType: .string) == "A newer copy"
+                }
+            }
+            withExtendedLifetime(lifecycle) {}
         } catch { results["clipboard_delivery"] = false }
         var pipelineTimes: [Double] = []; var modelUses = 0
         if let audioURL {

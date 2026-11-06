@@ -40,5 +40,5 @@ if [ -d "$legacy_app" ]; then
   mv "$legacy_app" "$backup_dir/Murmur.bundle"
   printf 'Archived the previous app at %s/Murmur.bundle\n' "$backup_dir"
 fi
-open "$installed_app" --args --show
-printf 'Installed and opened %s\n' "$installed_app"
+open -g "$installed_app"
+printf 'Installed and started %s\n' "$installed_app"

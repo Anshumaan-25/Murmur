@@ -32,3 +32,4 @@
 - D28: The running GUI process can evaluate delivery readiness on request without posting any input. Delivery diagnostics retain role, app and Boolean evidence only, allowing a failed insertion to be distinguished from a missing permission without exposing a transcript or field value.
 
 - D29: Keydown is the display name, bundle filename, and app executable name. Keep the original bundle ID, signing identity, and application support directory so existing macOS grants and user data carry over. Archive the prior installed bundle when upgrading.
+- D30: Use the menu bar app as the opt-in login item. Defer window and audio engine creation until needed. Suspend input and cancel pending work during sleep or an inactive user session, then restore shortcuts once every interruption clears. Scope the user-initiated activity to dictation and allow idle system sleep.

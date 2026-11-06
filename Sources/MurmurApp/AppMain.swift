@@ -3,21 +3,29 @@ import AVFoundation
 import ApplicationServices
 import MurmurCore
 
-@MainActor final class KeydownDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class KeydownDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let controller = DictationController()
     var item: NSStatusItem!
     var hub: Hub?
     var diagnosticObserver: NSObjectProtocol?
+    private var backgroundLifecycle: BackgroundLifecycle?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        backgroundLifecycle = BackgroundLifecycle { [weak self] suspended in
+            self?.controller.setSuspended(suspended)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Keydown")
         let menu = NSMenu()
+        menu.delegate = self
         for (title, action, key) in [("Start / stop dictation", #selector(dictate), ""), ("Edit selected text", #selector(edit), ""), ("Paste previous text", #selector(previous), ""), ("Open Keydown", #selector(showHub), ","), ("Quit Keydown", #selector(quit), "q")] {
             let entry = NSMenuItem(title: title, action: action, keyEquivalent: key); entry.target = self; menu.addItem(entry)
         }
         item.menu = menu
-        hub = Hub(controller: controller, preview: CommandLine.arguments.contains("--snapshot"))
         diagnosticObserver = DistributedNotificationCenter.default().addObserver(forName: LiveDiagnostics.request, object: nil, queue: .main) { [weak self] note in
             let inspect = note.userInfo?["inspect_focus"] as? Bool == true
             Task { @MainActor in
@@ -27,7 +35,7 @@ import MurmurCore
             }
         }
         LiveDiagnostics.publish(controller: controller)
-        if !UserDefaults.standard.bool(forKey: "hasLaunched") || CommandLine.arguments.contains("--show") || CommandLine.arguments.contains("--snapshot") { showHub(); UserDefaults.standard.set(true, forKey: "hasLaunched") }
+        if !UserDefaults.standard.bool(forKey: "hasLaunched") || CommandLine.arguments.contains("--show") || CommandLine.arguments.contains("--snapshot") { showHub() }
         if let index = CommandLine.arguments.firstIndex(of: "--snapshot"), CommandLine.arguments.count > index + 1 {
             let output = CommandLine.arguments[index + 1]
             if let pageIndex = CommandLine.arguments.firstIndex(of: "--page"), CommandLine.arguments.count > pageIndex + 1, let page = Int(CommandLine.arguments[pageIndex + 1]), (0...4).contains(page) {
@@ -44,13 +52,32 @@ import MurmurCore
             }
         }
     }
-    func applicationDidBecomeActive(_ notification: Notification) { controller.hotkeys.enableHold(controller.preferences.holdEnabled, key: controller.preferences.holdKey); hub?.refreshPermissions() }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        controller.hotkeys.refresh()
+        hub?.refreshPermissions()
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationWillTerminate(_ notification: Notification) {
+        controller.setSuspended(true)
+        if let diagnosticObserver { DistributedNotificationCenter.default().removeObserver(diagnosticObserver) }
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showHub(); return true }
-    @objc func showHub() { hub?.show() }
+    func menuWillOpen(_ menu: NSMenu) {
+        controller.hotkeys.refresh()
+        if let action = menu.items.first(where: { $0.action == #selector(dictate) }) {
+            action.title = controller.sessions.phase == .listening ? "Stop Dictation" : "Start Dictation"
+        }
+    }
+    @objc func showHub() {
+        guard !controller.isSuspended else { return }
+        if hub == nil { hub = Hub(controller: controller, preview: CommandLine.arguments.contains("--snapshot")) }
+        hub?.show()
+        UserDefaults.standard.set(true, forKey: "hasLaunched")
+    }
     @objc func dictate() { controller.toggle() }
     @objc func edit() { controller.start(command: true) }
     @objc func previous() { controller.pasteLast() }
-    @objc func quit() { controller.cancel(); NSApp.terminate(nil) }
+    @objc func quit() { NSApp.terminate(nil) }
 }
 @main struct KeydownEntry {
     @MainActor static func main() {
