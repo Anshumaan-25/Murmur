@@ -51,5 +51,3 @@ The setup script derives a compact speech model locally from the checksum-verifi
 Settings shows the build version and source identifier, and offers a metadata-only diagnostic export. Indicator draw dispatch is distinct from actual on-screen visibility. Diagnostics contain bounded in-memory session events and timings, not audio, transcripts or clipboard contents.
 
 For a text-sensitive evaluation of your own explicitly chosen corpus, use `scripts/evaluate_corpus.py --help`. It reports recognition and formatting separately, including exact protected facts. Text is omitted unless `--include-text` is chosen. Synthetic clips are useful regressions but cannot establish your accent accuracy or real microphone performance. See `docs/PRODUCT_POLISH.md` for the implementation and qualification boundaries.
-
-:>
