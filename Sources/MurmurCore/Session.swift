@@ -1,10 +1,14 @@
 import Foundation
 
-public enum CapturePhase: String, Codable, Sendable { case idle, listening, processing, inserting, cancelled, failed }
+public enum CapturePhase: String, Codable, Sendable { case idle, starting, listening, processing, inserting, cancelled, failed }
 public struct SessionGate: Sendable {
     public private(set) var id: UUID?
     public private(set) var phase: CapturePhase = .idle
     public init() {}
+    public var canStart: Bool { [.idle, .cancelled, .failed].contains(phase) }
+    @discardableResult public mutating func prepare() -> UUID {
+        let fresh = UUID(); id = fresh; phase = .starting; return fresh
+    }
     @discardableResult public mutating func begin() -> UUID {
         let fresh = UUID(); id = fresh; phase = .listening; return fresh
     }
@@ -12,7 +16,7 @@ public struct SessionGate: Sendable {
         guard id == session else { return false }
         let allowed: Bool
         switch (phase, next) {
-        case (.listening, .processing), (.processing, .inserting), (.inserting, .idle), (_, .failed): allowed = true
+        case (.starting, .listening), (.starting, .processing), (.listening, .processing), (.processing, .inserting), (.inserting, .idle), (_, .failed): allowed = true
         default: allowed = false
         }
         guard allowed else { return false }; phase = next; return true

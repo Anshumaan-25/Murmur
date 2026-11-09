@@ -49,8 +49,8 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     let pages = NSStackView()
     var page = 0
     var previousApp: NSRunningApplication?
+    private var hubStart = UUID()
     let navigation = NSSegmentedControl(labels: ["History", "Vocabulary", "Snippets", "Styles", "Settings"], trackingMode: .selectOne, target: nil, action: nil)
-    let preview: Bool
     let heading = NSTextField(labelWithString: "")
     let subtitle = NSTextField(labelWithString: "")
     let permissionLabel = NSTextField(labelWithString: "")
@@ -75,14 +75,15 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     var hotkeyPicker = NSPopUpButton()
     var holdPicker = NSPopUpButton()
     var enginePicker = NSPopUpButton()
+    var modePicker = NSPopUpButton()
     private weak var startupStatus: NSTextField?
     private weak var startupButton: ActionButton?
     private weak var shortcutWarning: NSTextField?
     private weak var sidebarShortcut: NSTextField?
     var checks: [String: NSButton] = [:]
     var fields: [String: NSTextField] = [:]
-    init(controller: DictationController, preview: Bool = false) {
-        self.controller = controller; self.preview = preview
+    init(controller: DictationController) {
+        self.controller = controller
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1140, height: 820), styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Keydown"; window.minSize = NSSize(width: 1040, height: 760); window.isReleasedWhenClosed = false; window.isRestorable = false
         window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden; window.appearance = NSAppearance(named: .darkAqua); window.backgroundColor = Palette.background; window.contentView = content
@@ -159,10 +160,20 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     }
     func dictateFromHub() {
         window?.orderOut(nil)
-        previousApp?.activate(options: [.activateAllWindows])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.controller.toggle() }
+        guard let previousApp, previousApp.activate() else {
+            controller.announce("The previous app is unavailable. Start dictation in your destination.")
+            return
+        }
+        let expectedPID = previousApp.processIdentifier
+        let intent = controller.intent
+        let request = UUID()
+        hubStart = request
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.hubStart == request, self.controller.intent == intent else { return }
+            self.controller.start(expectedPID: expectedPID)
+        }
     }
-    func show() { if let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = app }; NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil); refreshPermissions(); if page == 0 { reloadHistory() } }
+    func show() { hubStart = UUID(); if let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = app }; NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil); refreshPermissions(); if page == 0 { reloadHistory() } }
     @objc func navigate() { page = navigation.selectedSegment; render() }
     func render() {
         for view in pages.arrangedSubviews { pages.removeArrangedSubview(view); view.removeFromSuperview() }
@@ -201,7 +212,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         return card
     }
     func historyPage() {
-        rows = preview ? [] : (try? controller.history?.records()) ?? []; historyWasEmpty = rows.isEmpty
+        rows = (try? controller.history?.records()) ?? []; historyWasEmpty = rows.isEmpty
         let stats = UsageStatistics(rows); metricValues = []
         let metrics = row([metric("\(stats.words)", title: "WORDS SPOKEN", icon: "text.alignleft"), metric("\(Int(stats.wordsPerMinute))", title: "WORDS PER MINUTE", icon: "speedometer"), metric("\(stats.streak) days", title: "CURRENT STREAK", icon: "sparkles")]); metrics.distribution = .fillEqually; fillWidth(metrics)
         if rows.isEmpty {
@@ -221,13 +232,16 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         for (key, title, width) in [("when", "When", 140.0), ("app", "Application", 150.0), ("text", "Text", 380.0)] { let c = NSTableColumn(identifier: .init(key)); c.title = title; c.width = width; table.addTableColumn(c) }
         table.dataSource = self; table.delegate = self; fillWidth(scroll(table, height: 140))
         let (detail, detailScroll) = editor("Select a dictation to see its transcript and delivery details.", height: 130); details = detail; details.isEditable = false; fillWidth(detailScroll)
-        fillWidth(row([ActionButton("Copy selected") { [weak self] in self?.copySelected() }, ActionButton("Delete selected") { [weak self] in self?.deleteSelected() }, ActionButton("Export history…") { [weak self] in self?.exportHistory() }]))
+        fillWidth(row([ActionButton("Copy selected") { [weak self] in self?.copySelected() }, ActionButton("Review selected") { [weak self] in guard let self, self.rows.indices.contains(self.table.selectedRow) else { return }; self.controller.reviewRecord(self.rows[self.table.selectedRow]) }, ActionButton("Delete selected") { [weak self] in self?.deleteSelected() }, ActionButton("Export history…") { [weak self] in self?.exportHistory() }]))
     }
     func reloadHistory() {
-        guard page == 0, !preview else { return }
+        guard page == 0 else { return }
         let all = (try? controller.history?.records()) ?? []
         if historyWasEmpty != all.isEmpty { render(); return }
-        rows = (try? controller.history?.records(search: search.stringValue)) ?? []; table.reloadData()
+        let selectedID = rows.indices.contains(table.selectedRow) ? rows[table.selectedRow].id : nil
+        rows = (try? controller.history?.records(search: search.stringValue)) ?? []
+        table.reloadData()
+        if let selectedID, !rows.contains(where: { $0.id == selectedID }) { details.string = "" }
         let stats = UsageStatistics(all)
         for (field, value) in zip(metricValues, ["\(stats.words)", "\(Int(stats.wordsPerMinute))", "\(stats.streak) days"]) { field.stringValue = value }
     }
@@ -240,14 +254,13 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard rows.indices.contains(table.selectedRow) else { return }; let r = rows[table.selectedRow]
-        details.string = "RECOGNIZED\n\(r.raw)\n\nCLEANED\n\(r.cleaned)\n\nDELIVERED · \(r.outcome)\n\(r.inserted)\n\nReady in \(String(format: "%.2f", r.latency)) s"
+        details.string = "RECOGNIZED\n\(r.raw)\n\nFORMATTED\n\(r.cleaned)\n\nDELIVERY STATUS · \(r.outcome)\n\(r.inserted)\n\nReady in \(String(format: "%.2f", r.latency)) s"
     }
     func controlTextDidChange(_ notification: Notification) { if notification.object as? NSSearchField === search { reloadHistory() } }
     func copySelected() { guard rows.indices.contains(table.selectedRow) else { return }; NSPasteboard.general.clearContents(); NSPasteboard.general.setString(rows[table.selectedRow].cleaned, forType: .string); statusLabel.stringValue = "Copied" }
     func deleteSelected() { guard rows.indices.contains(table.selectedRow) else { return }; do { let id = rows[table.selectedRow].id
             try controller.history?.delete(id)
-            let audio = Preferences.directory.appendingPathComponent("Recordings").appendingPathComponent(id.uuidString + ".wav")
-            if FileManager.default.fileExists(atPath: audio.path) { try FileManager.default.removeItem(at: audio) }
+            controller.clearPrevious(id)
             reloadHistory(); details.string = "Deleted locally." } catch { statusLabel.stringValue = error.localizedDescription } }
     func exportHistory() {
         let save = NSSavePanel(); save.allowedContentTypes = [.json]; save.nameFieldStringValue = "Keydown-history.json"
@@ -255,8 +268,8 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     }
     func dictionaryPage() {
         fillWidth(label("Names worth getting right", size: 22, weight: .semibold))
-        fillWidth(label("Add a name or term on each line. Keydown uses these as recognition hints and keeps their capitalization."))
-        let terms = preview ? [] : (try? controller.history?.dictionary()) ?? []
+        fillWidth(label("Add one name or term per line. Bundled and system recognition use bounded local hints. Exact spelling is preserved during prose formatting; hints do not guarantee recognition or create fuzzy replacements."))
+        let terms = (try? controller.history?.dictionary()) ?? []
         let (view, scroller) = editor(terms.joined(separator: "\n"), height: 260); words = view; fillWidth(scroller)
         fillWidth(ActionButton("Save vocabulary", primary: true) { [weak self] in guard let self else { return }; do { try self.controller.history?.setDictionary(self.words.string.components(separatedBy: .newlines)); self.statusLabel.stringValue = "Vocabulary saved" } catch { self.statusLabel.stringValue = error.localizedDescription } })
     }
@@ -264,7 +277,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         snippetRows = []; fillWidth(label("A few words, a longer message", size: 22, weight: .semibold))
         fillWidth(label("Say a trigger by itself to insert its full text. Expansions preserve your line breaks."))
         let stack = column(16); snippetStack = stack
-        let values = preview ? [:] : (try? controller.history?.values(table: "expansions")) ?? [:]
+        let values = (try? controller.history?.values(table: "expansions")) ?? [:]
         for key in values.keys.sorted() { addSnippet(key, value: values[key] ?? "") }
         if values.isEmpty { addSnippet("", value: "") }
         let scroller = scroll(stack, height: 280); fillWidth(scroller)
@@ -286,7 +299,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         styleRows = []; fillWidth(label("A voice for each app", size: 22, weight: .semibold))
         fillWidth(label("Choose neutral, formal, or casual wording for an application. Neutral keeps your own phrasing."))
         let stack = column(); styleStack = stack
-        let styles = preview ? [:] : (try? controller.history?.values(table: "app_styles")) ?? [:]
+        let styles = (try? controller.history?.values(table: "app_styles")) ?? [:]
         for key in styles.keys.sorted() { addStyle(key, style: styles[key] ?? "neutral") }
         if styles.isEmpty { addStyle("", style: "neutral") }
         fillWidth(scroll(stack, height: 230))
@@ -307,12 +320,19 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         let prefs = controller.preferences
         let feedback = SessionMeasurements.median(controller.measurements.feedbackMilliseconds).map { String(format: "%.0f ms", $0) } ?? "not measured"
         let insertion = SessionMeasurements.median(controller.measurements.insertionMilliseconds).map { String(format: "%.0f ms", $0) } ?? "not measured"
+        body.addArrangedSubview(label(BuildInfo.summary, size: 11))
+        body.addArrangedSubview(ActionButton("Export diagnostics…") { [weak self] in self?.exportDiagnostics() })
+        body.addArrangedSubview(row([ActionButton("Practice dictation") { [weak self] in self?.controller.showPractice() }, ActionButton("Preview indicator") { [weak self] in
+            guard let self, self.controller.sessions.canStart else { return }; self.controller.indicator.preview()
+        }, ActionButton("Reset indicator position") { [weak self] in
+            guard let self, self.controller.sessions.canStart else { return }; self.controller.indicator.preview(reset: true)
+        }]))
         body.addArrangedSubview(label("PERFORMANCE THIS SESSION", size: 10, weight: .semibold))
-        body.addArrangedSubview(label("This launch · shortcut feedback: \(feedback) · dictation completion: \(insertion)."))
+        body.addArrangedSubview(label("This launch · first draw dispatch: \(feedback) · dictation completion: \(insertion)."))
         let permissionText = "Microphone \(AVCaptureDevice.authorizationStatus(for: .audio) == .authorized ? "✓" : "needs access") · Accessibility \(AXIsProcessTrusted() ? "✓" : "needs access") · Input Monitoring \(CGPreflightListenEventAccess() ? "✓" : "optional")"
         body.addArrangedSubview(label("ACCESS & INSERTION", size: 10, weight: .semibold))
         body.addArrangedSubview(label(permissionText))
-        body.addArrangedSubview(label("Automatic insertion needs Accessibility. If delivery falls back to copying, the indicator tells you why."))
+        body.addArrangedSubview(label("Automatic insertion needs Accessibility. If a target is uncertain, use Copy Previous Text from the menu."))
         body.addArrangedSubview(row([ActionButton("Enable microphone") { AVCaptureDevice.requestAccess(for: .audio) { _ in } }, ActionButton("Accessibility…") { Self.privacy("Privacy_Accessibility") }, ActionButton("Input Monitoring…") { Self.privacy("Privacy_ListenEvent") }]))
         body.addArrangedSubview(label("OPEN AT LOGIN", size: 10, weight: .semibold))
         let loginStatus = label("")
@@ -327,8 +347,11 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         languagePicker = NSPopUpButton(); languagePicker.addItems(withTitles: ["English (US)", "English (India)", "English (UK)"]); languagePicker.selectItem(at: ["en-US", "en-IN", "en-GB"].firstIndex(of: prefs.language) ?? 0)
         body.addArrangedSubview(label("SOUND & LANGUAGE", size: 10, weight: .semibold))
         body.addArrangedSubview(row([label("Microphone"), micPicker, label("Language"), languagePicker]))
-        body.addArrangedSubview(label("The bundled speech model recognizes English. Other languages require a compatible local model."))
+        body.addArrangedSubview(label("Bundled recognition uses the same English model for India, US and UK. Regional locale selection applies to system providers. Bundled vocabulary hints stay local; approved custom decoders receive no hints."))
         retentionPicker = NSPopUpButton(); retentionPicker.addItems(withTitles: ["Keep history", "Delete after a day", "Never save history"]); retentionPicker.selectItem(at: Retention.allCases.firstIndex(of: prefs.retention) ?? 0)
+        modePicker = NSPopUpButton(); modePicker.addItems(withTitles: DictationMode.allCases.map(\.title)); modePicker.selectItem(at: DictationMode.allCases.firstIndex(of: prefs.dictationMode) ?? 0)
+        body.addArrangedSubview(row([label("Dictation behavior"), modePicker]))
+        body.addArrangedSubview(label("Dictate prose formats speech. Exact text keeps recognized wording; say ‘spell A B hyphen zero zero seven’ for AB-007. Follow app preference preserves code in editors and terminals."))
         body.addArrangedSubview(label("EVERYDAY PREFERENCES", size: 10, weight: .semibold))
         body.addArrangedSubview(row([label("History"), retentionPicker]))
         hotkeyPicker = NSPopUpButton(); hotkeyPicker.addItems(withTitles: ["Control Option Space", "Control Option D"]); hotkeyPicker.selectItem(at: prefs.toggleKey == 2 ? 1 : 0)
@@ -341,7 +364,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         body.addArrangedSubview(row([label("Hold-to-talk key"), holdPicker]))
         enginePicker = NSPopUpButton(); enginePicker.addItems(withTitles: SpeechEngine.allCases.map(\.title)); enginePicker.selectItem(at: SpeechEngine.allCases.firstIndex(of: prefs.speechEngine) ?? 0)
         body.addArrangedSubview(row([label("Speech engine"), enginePicker]))
-        for (key, title, value) in [("hold", "Enable the selected hold-to-talk key", prefs.holdEnabled), ("code", "Preserve exact syntax in code editors and terminals", prefs.preserveCode), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("return", "Allow spoken ‘press enter’ at the end", prefs.spokenReturn), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
+        for (key, title, value) in [("hold", "Enable the selected hold-to-talk key", prefs.holdEnabled), ("code", "Preserve exact syntax in code editors and terminals", prefs.preserveCode), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
             let check = NSButton(checkboxWithTitle: title, target: nil, action: nil); check.state = value ? .on : .off; checks[key] = check; body.addArrangedSubview(check)
         }
         let holdHelp = prefs.holdKey == .globe ? "Set Keyboard → Press globe key → Do Nothing to avoid the emoji picker." : "Your chosen hold key is passed through to the app you are using."
@@ -425,15 +448,51 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
             }
         }
     }
-    func chooseSpeechModel() { let panel = NSOpenPanel(); if panel.runModal() == .OK, let path = panel.url?.path { controller.preferences.customSpeechModel = path; controller.applyPreferences(); statusLabel.stringValue = "Local speech model selected" } }
-    func chooseDecoder() { let panel = NSOpenPanel(); if panel.runModal() == .OK, let path = panel.url?.path { controller.preferences.customSpeechExecutable = path; controller.applyPreferences(); statusLabel.stringValue = "Local decoder selected" } }
+    func chooseSpeechModel() { let panel = NSOpenPanel(); if panel.runModal() == .OK, let path = panel.url?.path { controller.preferences.customSpeechModel = path; if controller.applyPreferences() { statusLabel.stringValue = "Local speech model selected" } } }
+    func chooseDecoder() {
+        let panel = NSOpenPanel()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let confirmation = NSAlert()
+        confirmation.messageText = "Approve this custom decoder?"
+        confirmation.informativeText = "Keydown runs this program as your user and gives it your microphone recording. Choose only software you trust."
+        confirmation.addButton(withTitle: "Approve Decoder")
+        confirmation.addButton(withTitle: "Cancel")
+        guard confirmation.runModal() == .alertFirstButtonReturn else { return }
+        do {
+            let approval = try DecoderApproval(executable: url)
+            controller.preferences.customSpeechExecutable = url.path
+            controller.preferences.decoderApproval = approval
+            controller.preferences.speechEngine = .custom
+            let saved = controller.applyPreferences()
+            render()
+            if saved { statusLabel.stringValue = "Custom decoder approved" }
+        } catch {
+            statusLabel.stringValue = error.localizedDescription
+        }
+    }
     func saveSettings() {
         var p = controller.preferences
         p.microphone = micIDs[max(0, micPicker.indexOfSelectedItem)]; p.language = ["en-US", "en-IN", "en-GB"][max(0, languagePicker.indexOfSelectedItem)]
+        p.dictationMode = DictationMode.allCases[max(0, modePicker.indexOfSelectedItem)]
         p.retention = Retention.allCases[max(0, retentionPicker.indexOfSelectedItem)]; p.toggleKey = hotkeyPicker.indexOfSelectedItem == 1 ? 2 : 49
-        p.useModel = checks["model"]?.state == .on && controller.modelPassValidated; p.holdEnabled = checks["hold"]?.state == .on; p.holdKey = HoldKey.allCases[max(0, holdPicker.indexOfSelectedItem)]; p.speechEngine = SpeechEngine.allCases[max(0, enginePicker.indexOfSelectedItem)]; p.preserveCode = checks["code"]?.state == .on; p.handsFree = checks["hands"]?.state == .on; p.contextEnabled = checks["context"]?.state == .on; p.spokenReturn = checks["return"]?.state == .on; p.keepAudio = checks["audio"]?.state == .on
+        p.useModel = checks["model"]?.state == .on && controller.modelPassValidated; p.holdEnabled = checks["hold"]?.state == .on; p.holdKey = HoldKey.allCases[max(0, holdPicker.indexOfSelectedItem)]; p.speechEngine = SpeechEngine.allCases[max(0, enginePicker.indexOfSelectedItem)]; p.preserveCode = checks["code"]?.state == .on; p.handsFree = checks["hands"]?.state == .on; p.contextEnabled = checks["context"]?.state == .on; p.keepAudio = checks["audio"]?.state == .on
         p.silenceSeconds = max(0.5, min(10, fields["silence"]?.doubleValue ?? 1.5)); p.maximumSeconds = max(5, min(600, fields["maximum"]?.doubleValue ?? 120)); p.clipboardDelay = max(0.1, min(2, fields["clipboard"]?.doubleValue ?? 0.35))
-        controller.preferences = p; controller.applyPreferences(); render(); statusLabel.stringValue = "Settings saved"
+        controller.preferences = p
+        let saved = controller.applyPreferences()
+        render()
+        if saved { statusLabel.stringValue = "Settings saved" }
+    }
+    func exportDiagnostics() {
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "Keydown-diagnostics.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: LiveDiagnostics.snapshot(controller: controller), options: [.prettyPrinted, .sortedKeys])
+            let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+            guard fd >= 0 else { statusLabel.stringValue = "Choose a new filename for the diagnostic report"; return }
+            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true); defer { try? handle.close() }
+            try handle.write(contentsOf: data)
+            statusLabel.stringValue = "Diagnostics exported · no audio, transcript or clipboard contents"
+        } catch { statusLabel.stringValue = "Could not export diagnostics" }
     }
     static func microphones() -> [(AudioDeviceID, String)] {
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)

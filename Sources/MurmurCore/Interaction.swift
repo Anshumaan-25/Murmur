@@ -35,8 +35,8 @@ public enum ApplicationCategory: String, Codable, CaseIterable, Sendable {
     }
 }
 public enum SpeechEngine: String, Codable, CaseIterable, Sendable {
-    case automatic, bundled, systemAnalyzer, systemLegacy
+    case automatic, bundled, custom, systemAnalyzer, systemLegacy
     public var title: String {
-        switch self { case .automatic: return "Automatic (local only)"; case .bundled: return "Bundled decoder"; case .systemAnalyzer: return "System analyzer"; case .systemLegacy: return "System dictation" }
+        switch self { case .automatic: return "Automatic (local only)"; case .bundled: return "Bundled decoder"; case .custom: return "Approved custom decoder"; case .systemAnalyzer: return "System analyzer"; case .systemLegacy: return "System dictation" }
     }
 }

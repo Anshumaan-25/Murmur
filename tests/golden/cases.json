@@ -25,7 +25,7 @@
   },
   {
     "input": "send it to Alex actually Sam",
-    "expected": "Send it to Sam."
+    "expected": "Send it to Alex actually Sam."
   },
   {
     "input": "we we should meet",
@@ -173,23 +173,23 @@
   },
   {
     "input": "send it to New York actually Boston",
-    "expected": "Send it to Boston."
+    "expected": "Send it to New York actually Boston."
   },
   {
     "input": "send it to New York actually San Francisco",
-    "expected": "Send it to San Francisco."
+    "expected": "Send it to New York actually San Francisco."
   },
   {
     "input": "send it to Alex actually Sam tomorrow",
-    "expected": "Send it to Sam tomorrow."
+    "expected": "Send it to Alex actually Sam tomorrow."
   },
   {
     "input": "meet on Monday actually Wednesday at three",
-    "expected": "Meet on Wednesday at 3."
+    "expected": "Meet on Monday actually Wednesday at 3."
   },
   {
     "input": "meet on Friday no Saturday",
-    "expected": "Meet on Saturday."
+    "expected": "Meet on Friday no Saturday."
   },
   {
     "input": "meet at three thirty",
@@ -205,7 +205,7 @@
   },
   {
     "input": "meet at three thirty actually four fifteen",
-    "expected": "Meet at 4:15."
+    "expected": "Meet at 3:30 actually 4:15."
   },
   {
     "input": "meet at 3:30 pm actually make that 4:15 pm",
@@ -289,19 +289,19 @@
   },
   {
     "input": "you know, the report is ready",
-    "expected": "The report is ready."
+    "expected": "You know, the report is ready."
   },
   {
     "input": "well, the report is ready",
-    "expected": "The report is ready."
+    "expected": "Well, the report is ready."
   },
   {
     "input": "send the report, scratch that, send the summary",
-    "expected": "Send the summary."
+    "expected": "Send the report, scratch that, send the summary."
   },
   {
     "input": "send the report. never mind, send the summary",
-    "expected": "Send the summary."
+    "expected": "Send the report. Never mind, send the summary."
   },
   {
     "input": "keep user@example.test unchanged",
@@ -358,5 +358,41 @@
   {
     "input": "um uh erm the report is ready",
     "expected": "The report is ready."
+  },
+  {
+    "input": "send it to Alex actually make that Sam",
+    "expected": "Send it to Sam."
+  },
+  {
+    "input": "meet on Monday actually make that Wednesday at three",
+    "expected": "Meet on Wednesday at 3."
+  },
+  {
+    "input": "meet at three thirty actually make that four fifteen",
+    "expected": "Meet at 4:15."
+  },
+  {
+    "input": "we sent it to Paris, actually London and Berlin",
+    "expected": "We sent it to Paris, actually London and Berlin."
+  },
+  {
+    "input": "the fee is one point oh five dollars",
+    "expected": "The fee is 1.05 dollars."
+  },
+  {
+    "input": "enter code oh one oh five",
+    "expected": "Enter code 0105."
+  },
+  {
+    "input": "the comma key is broken",
+    "expected": "The comma key is broken."
+  },
+  {
+    "input": "the literal instruction is press enter.",
+    "expected": "The literal instruction is press enter."
+  },
+  {
+    "input": "read “one point oh five” aloud",
+    "expected": "Read “one point oh five” aloud."
   }
 ]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Use the installed app's real AX grant against disposable native and WebKit peers."""
+"""Use the separately authorized fixture app against disposable native and WebKit peers."""
 import json
 import pathlib
 import plistlib
@@ -8,8 +8,7 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-APP = pathlib.Path('/Applications/Keydown.app')
-EXECUTABLE = APP / 'Contents/MacOS/Keydown'
+APP = ROOT / '.build/Keydown Fixture.app'
 
 
 def read_when_ready(path, timeout=8):
@@ -23,9 +22,8 @@ def read_when_ready(path, timeout=8):
 
 
 def main():
-    status = json.loads(subprocess.check_output([str(EXECUTABLE), '--diagnostics'], text=True))
-    if status.get('source') != 'running_app' or not status.get('accessibility_authorized'):
-        raise SystemExit('Open the installed Keydown app with Accessibility enabled before this optional check.')
+    if not APP.is_dir():
+        raise SystemExit("Build the fixture with bash scripts/build_fixture.sh, then grant it Accessibility.")
     fixture = ROOT / '.local/PasteTarget.app'
     binary = fixture / 'Contents/MacOS/PasteTarget'
     binary.parent.mkdir(parents=True, exist_ok=True)
@@ -42,27 +40,25 @@ def main():
                 read_when_ready(state)
                 time.sleep(0.6)
                 text = 'Keydown insertion check 世界.'
-                subprocess.run(['open', '-g', '-n', str(APP), '--args', '--test-insert', text, '--insert-report', str(report), '--expected-target', 'local.murmur.paste-target'] + (['--move-fixture-cursor'] if mode == 'opaque-moved' else []), check=True)
+                subprocess.run(['open', '-g', '-n', str(APP), '--args', '--fixture-insert', str(target.pid), str(report)] + (['--move-fixture-cursor'] if mode == 'opaque-moved' else []), check=True)
                 result = read_when_ready(report)
                 if result.get('target_app') != 'local.murmur.paste-target':
-                    print(mode + ': cross-app check skipped; focused application is ' + str(result.get('target_app', 'unknown')))
+                    print(mode + ': ' + result.get('error', 'Owned fixture was not focused.'))
                     return 2
                 deadline = time.monotonic() + 3
-                while time.monotonic() < deadline and json.loads(state.read_text())['text'] != 'Prefix: ' + text:
+                while not mode.startswith('opaque') and time.monotonic() < deadline and json.loads(state.read_text())['text'] != 'Prefix: ' + text:
                     time.sleep(0.05)
-                if mode in ['native', 'opaque']:
+                if mode == 'native':
                     while time.monotonic() < deadline and 'undo_restored' not in json.loads(state.read_text()):
                         time.sleep(0.05)
                 target_state = json.loads(state.read_text())
                 result['destination_text_matches'] = target_state['text'] == 'Prefix: ' + text
-                if mode in ['native', 'opaque']:
+                if mode == 'native':
                     result['undo_restored'] = target_state.get('undo_restored', False)
                     result['redo_restored'] = target_state.get('redo_restored', False)
-                result['passed'] = result.get('outcome') == 'inserted' and result['destination_text_matches'] and (mode not in ['native', 'opaque'] or (result['undo_restored'] and result['redo_restored']))
-                if mode == 'opaque':
-                    result['passed'] = result['passed'] and result.get('delivery', {}).get('opaque_delivery', False)
-                if mode == 'opaque-moved':
-                    result['passed'] = result.get('outcome') == 'copied' and target_state['text'] == 'Prefix: ' and result.get('delivery', {}).get('focus_unchanged') is False
+                result['passed'] = result.get('outcome') == 'queued' and result['destination_text_matches'] and (mode not in ['native', 'opaque'] or (result['undo_restored'] and result['redo_restored']))
+                if mode.startswith('opaque'):
+                    result['passed'] = result.get('outcome') == 'available' and target_state['text'] == 'Prefix: '
                 results[mode] = result
             finally:
                 target.terminate()

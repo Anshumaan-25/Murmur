@@ -28,7 +28,7 @@ Independent design: collect destination identity first. Additional selected and 
 
 OBSERVED (E15–E16): insertion dispatches plain and optionally rich text to a native component. OBSERVED (E19–E20): native capabilities include clipboard access, accessibility inspection, keyboard events, and clipboard recovery diagnostics.
 
-INFERRED (E15–E20): ordinary insertion uses an offered clipboard item and a paste gesture. Exact app exceptions are UNKNOWN. Independent design: remember every available pasteboard type on every item; restore after a configurable interval unless another clipboard owner replaced our content. Refuse protected fields. Remember app and focused control; when they change, copy the result and notify instead of injecting it. Direct selected-text insertion is permitted only for a known editable standard control where undo behavior can be established.
+INFERRED (E15–E20): ordinary insertion uses an offered clipboard item and a paste gesture. Exact app exceptions are UNKNOWN. Current independent design: remember every available pasteboard type on every item; restore after a configurable interval unless another clipboard owner replaced our content. Refuse protected fields. Remember app and focused control; when they change, make the result available for explicit Copy/Review without changing the clipboard. A dispatched paste is unconfirmed until a recipient is observed consuming it. Selected-text delivery revalidates the exact selection and retains target-owned undo.
 
 OBSERVED (E19): native permission checks and event monitoring exist. Independent design: provide microphone, Accessibility, and optional Input Monitoring onboarding. A registered toggle shortcut works without Input Monitoring. Model installation permission is separate from microphone access.
 
@@ -36,7 +36,7 @@ OBSERVED (E19): native permission checks and event monitoring exist. Independent
 
 OBSERVED (bounded supplementary search B01): packaged code contains press-and-hold handling with separate start/stop callbacks and an active recording identity. UNKNOWN: gesture thresholds, all key combinations, exact double-tap rules, and conflict handling.
 
-Independent design: a registered toggle shortcut is the fallback. Holding the globe/function modifier records until release when monitoring permission is present. Escape cancels. Hands-free capture ends on sustained silence or a maximum duration. A dedicated shortcut inserts the latest successful text. Optional spoken return-key intent is recognized only at the end of an utterance and is disabled by default.
+Independent design: a registered toggle shortcut is the fallback. Holding a configured key records until release when monitoring permission is present. Escape cancels. Hands-free capture ends on sustained silence or a maximum duration. A dedicated shortcut attempts delivery of the latest result after destination checks. Spoken Return is not an action; literal “press enter” remains text. Starting another recording while processing requires explicit cancellation first.
 
 OBSERVED (bounded supplementary search B01): command-related status and mode branches exist. UNKNOWN: their complete behavior and remote instructions. Independent design: capture selected text at the start, recognize a spoken editing request, rewrite locally, and replace only the unchanged original selection. Unsupported instructions show an explanation rather than inventing an edit. Replacement uses a normal paste operation so the destination owns undo.
 

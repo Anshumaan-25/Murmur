@@ -24,7 +24,12 @@ Task {
             try emitEncodable(await SystemCleanup().attempt(raw, context: TextContext()))
         } else if let instruction = option("--rewrite"), let selected = option("--selected"), let decoder = option("--decoder"), let model = option("--model") {
             let start = Date()
-            let text = try await CommandRewrite(executable: URL(fileURLWithPath: decoder), model: URL(fileURLWithPath: model)).rewrite(instruction: instruction, selected: selected)
+            let edit = try await CommandRewrite(executable: URL(fileURLWithPath: decoder), model: URL(fileURLWithPath: model)).rewrite(instruction: instruction, selected: selected)
+            let text: String
+            switch edit {
+            case .replacement(let replacement): text = replacement
+            case .suggestion(let suggestion): text = suggestion
+            }
             emit(["status":"ok", "seconds":Date().timeIntervalSince(start), "text":text])
         } else if let file = option("--file") {
             let frames = try AudioTools.readFile(URL(fileURLWithPath: file))
@@ -33,11 +38,19 @@ Task {
             case "legacy": provider = LegacySystemSpeechProvider()
             case "analyzer": provider = SystemSpeechProvider()
             default:
-                if let decoder = option("--decoder"), let model = option("--model") { provider = ExecutableSpeechProvider(executable: URL(fileURLWithPath: decoder), model: URL(fileURLWithPath: model), useGPU: !args.contains("--cpu")) }
+                if let decoder = option("--decoder"), let model = option("--model") { provider = ExecutableSpeechProvider(executable: URL(fileURLWithPath: decoder), model: URL(fileURLWithPath: model), useGPU: !args.contains("--cpu"), privateProtocol: args.contains("--private-protocol")) }
                 else { provider = SystemSpeechProvider() }
             }
-            let result = try await provider.transcribe(frames, language: option("--language") ?? "en-US", vocabulary: [])
-            emit(["status":"ok", "provider":provider.name, "audio_seconds":Double(frames.flatMap(\.samples).count) / AudioTools.rate, "recognition_seconds":result.seconds, "text":result.text])
+            var vocabulary: [String] = []
+            if let path = option("--vocabulary-file") {
+                let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path)); defer { try? handle.close() }
+                let data = try handle.read(upToCount: 65537) ?? Data()
+                guard data.count <= 65536 else { throw MurmurError.unavailable("Vocabulary fixture exceeds 64 KiB.") }
+                vocabulary = SpeechRequest.vocabulary(String(decoding: data, as: UTF8.self).components(separatedBy: .newlines))
+            }
+            let result = try await provider.transcribe(frames, language: option("--language") ?? "en-US", vocabulary: vocabulary)
+            let cleaned = RuleCleanup().apply(result.text, context: TextContext(dictionary: vocabulary))
+            emit(["status":"ok", "provider":provider.name, "audio_seconds":Double(frames.flatMap(\.samples).count) / AudioTools.rate, "recognition_seconds":result.seconds, "text":result.text, "cleaned":cleaned])
         } else { throw MurmurError.unavailable("Use --file, --probe, --qualify-cleanup, --cleanup, or --rewrite.") }
     } catch { status = 1; emit(["status":"unavailable", "reason":error.localizedDescription]) }
     gate.signal()

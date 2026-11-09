@@ -1,10 +1,11 @@
+#if KEYDOWN_FIXTURE
 import AppKit
 import Carbon
 import IOKit.hidsystem
 import MurmurCore
 
 @MainActor enum NativeChecks {
-    static func run(audioURL: URL? = nil, withCleanup: Bool = false) async -> [String: Any] {
+    static func run(audioURL: URL? = nil, withCleanup: Bool = false, previewDirectory: URL? = nil) async -> [String: Any] {
         var results = await shortcutGestures()
         do {
             let shortcuts = Hotkeys()
@@ -82,7 +83,7 @@ import MurmurCore
         if let audioURL {
             do {
                 let resources = Bundle.main.resourceURL!
-                let provider = ExecutableSpeechProvider(executable: resources.appendingPathComponent("speech-decode"), model: resources.appendingPathComponent("speech-model.bin"))
+                let provider = ExecutableSpeechProvider(executable: resources.appendingPathComponent("speech-decode"), model: resources.appendingPathComponent("speech-model.bin"), privateProtocol: FileManager.default.fileExists(atPath: resources.appendingPathComponent("speech-protocol.json").path))
                 let frames = try AudioTools.readFile(audioURL)
                 if withCleanup, CleanupQualification.load()?.eligible != true { throw MurmurError.unavailable("Qualify local cleanup before measuring it.") }
                 for _ in 0..<3 {
@@ -100,6 +101,7 @@ import MurmurCore
         }
         board.releaseGlobally()
         let indicator = Indicator()
+        results["panel_final_window_level"] = indicator.panel.level == .statusBar
         let previouslyFocused = NSApp.keyWindow
         let before = ProcessInfo.processInfo.systemUptime
         indicator.show("Checking indicator", phase: .listening); indicator.panel.displayIfNeeded()
@@ -111,6 +113,63 @@ import MurmurCore
         results["panel_audio_response"] = indicator.content.amplitude > 0.1 && indicator.animating
         let frameMedian = SessionMeasurements.median(indicator.frameIntervals.map { $0 * 1000 }) ?? 0
         indicator.hide(); results["panel_timer_stops"] = !indicator.animating && !indicator.panel.isVisible; window.orderOut(nil)
+        let lifecycleCenter = NotificationCenter()
+        let panelLifecycle = BackgroundLifecycle(center: lifecycleCenter) { suspended in if suspended { indicator.hide() } }
+        indicator.show("Completed", phase: .idle)
+        lifecycleCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        results["panel_suspension_hides"] = !indicator.panel.isVisible && !indicator.animating
+        lifecycleCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        results["wake_does_not_imply_recording"] = !indicator.panel.isVisible
+        indicator.panel.alphaValue = 0
+        indicator.panel.level = .floating
+        indicator.show("Listening after wake", phase: .listening)
+        try? await Task.sleep(nanoseconds: 2_100_000_000)
+        results["panel_recovers_after_wake"] = indicator.panel.isVisible && indicator.panel.alphaValue == 1 && indicator.panel.level == .statusBar
+        results["old_dismissal_cannot_hide_new_capture"] = indicator.animating
+        results["panel_frame_on_display"] = NSScreen.screens.contains { $0.visibleFrame.contains(indicator.panel.frame) }
+        indicator.hide()
+        withExtendedLifetime(panelLifecycle) {}
+        let reviewBoard = NSPasteboard(name: .init("local.murmur.review." + UUID().uuidString))
+        reviewBoard.setString("Original clipboard", forType: .string)
+        let review = ResultReviewController(board: reviewBoard)
+        review.update(raw: "recognized fixture", cleaned: "Formatted fixture.", outcome: "Available for copy")
+        if let previewDirectory, let view = review.window?.contentView {
+            review.update(raw: "Schedule our meeting at 5.15 p.m. Actually make that 5.50 p.m.", cleaned: "Schedule our meeting at 5:50 PM.", outcome: "Available for copy")
+            view.layoutSubtreeIfNeeded()
+            if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                if let data = bitmap.representation(using: .png, properties: [:]) {
+                    do {
+                        try FileManager.default.createDirectory(at: previewDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                        try data.write(to: previewDirectory.appendingPathComponent("result-review.png"))
+                        results["review_preview_rendered"] = true
+                    } catch { results["review_preview_rendered"] = false }
+                }
+            }
+            review.update(raw: "recognized fixture", cleaned: "Formatted fixture.", outcome: "Available for copy")
+        }
+        results["review_keeps_both_stages"] = review.rawText == "recognized fixture" && review.formattedText == "Formatted fixture."
+        results["review_does_not_copy_automatically"] = reviewBoard.string(forType: .string) == "Original clipboard"
+        review.copyFormatted()
+        results["review_explicit_copy"] = reviewBoard.string(forType: .string) == "Formatted fixture."
+        review.clear()
+        results["review_deletion_clears_content"] = review.rawText.isEmpty && review.formattedText.isEmpty
+        reviewBoard.releaseGlobally()
+        do {
+            let controller = DictationController(ephemeral: true)
+            let owned = controller.sessions.prepare()
+            _ = controller.sessions.transition(.processing, session: owned)
+            let work = Task<Void, Never> { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            controller.activeTask = work
+            controller.start()
+            results["new_press_preserves_processing_identity"] = controller.sessions.id == owned && controller.sessions.phase == .processing
+            results["new_press_does_not_cancel_transcription"] = !work.isCancelled
+            controller.setSuspended(true)
+            results["sleep_cancels_owned_work"] = work.isCancelled && controller.sessions.id == nil && !controller.indicator.panel.isVisible
+            controller.setSuspended(false)
+            results["resume_stays_idle_without_microphone"] = controller.sessions.phase == .idle && !controller.microphone.isCapturing && !controller.indicator.panel.isVisible
+            controller.setSuspended(true)
+        }
         let links = ["Privacy_Microphone", "Privacy_Accessibility", "Privacy_ListenEvent"]
         for link in links {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + link) { results["settings_handler_" + link] = NSWorkspace.shared.urlForApplication(toOpen: url) != nil }
@@ -234,3 +293,5 @@ import MurmurCore
         return SendEventToEventTarget(event, GetApplicationEventTarget())
     }
 }
+
+#endif

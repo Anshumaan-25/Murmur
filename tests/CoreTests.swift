@@ -10,6 +10,8 @@ func expect(_ condition: @autoclosure () -> Bool, _ name: String) {
 }
 @main struct CoreVerification {
  @MainActor static func main() async {
+polishTextChecks()
+await polishProtocolChecks()
 var gate = SessionGate()
 let old = gate.begin(); gate.cancel()
 expect(!gate.accepts(old), "cancel invalidates work")
@@ -72,9 +74,35 @@ do {
     let customResult = try await custom.transcribe(framed, language: "en-US", vocabulary: [])
     expect(customResult.text == "custom\ntranscript", "custom decoder retains its flags and line breaks")
 } catch { expect(false, "executable speech provider fixture: \(error)") }
-expect(!TextGuard.accepts("Here is an answer with unrelated content", original: "Send the invoice."), "unrelated model output rejected")
-expect(!TextGuard.accepts("Meet at 5.", original: "Meet at 4."), "changed number rejected")
-expect(TextGuard.accepts("Send the note.", original: "Send the note."), "faithful output allowed")
+do {
+    let sentinel = "fixture-secret-sentinel"
+    setenv("HF_TOKEN", sentinel, 1)
+    defer { unsetenv("HF_TOKEN") }
+    let response = try await LocalProcess.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", #"printf '%s' "${HF_TOKEN-unset}""#], input: Data(), timeout: 2)
+    expect(response == "unset", "decoder environment does not inherit credentials")
+    do {
+        _ = try await LocalProcess.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "/bin/sleep 2 & exit 0"], input: Data(), timeout: 0.15)
+        expect(false, "child retaining stdout cannot make a deadline succeed")
+    } catch { expect(error.localizedDescription.contains("timed out"), "child retaining stdout has a terminal deadline") }
+    do {
+        _ = try await LocalProcess.run(executable: URL(fileURLWithPath: "/bin/dd"), arguments: ["if=/dev/zero", "bs=1048576", "count=2"], input: Data(), timeout: 3)
+        expect(false, "oversized decoder output rejected")
+    } catch { expect(error.localizedDescription.contains("exceeded"), "decoder output is bounded") }
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appendingPathComponent("fixture decoder")
+    try Data("#!/bin/sh\nprintf approved".utf8).write(to: path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
+    let approval = try DecoderApproval(executable: path)
+    let valid = try await LocalProcess.run(executable: path, arguments: [], input: Data(), timeout: 2, approval: approval)
+    expect(valid == "approved", "approved bytes execute from a private staged copy")
+    try Data("#!/bin/sh\nprintf substituted".utf8).write(to: path)
+    do {
+        _ = try await LocalProcess.run(executable: path, arguments: [], input: Data(), timeout: 2, approval: approval)
+        expect(false, "replaced custom decoder must require approval")
+    } catch { expect(error.localizedDescription.contains("changed"), "changed custom bytes fail closed") }
+} catch { expect(false, "decoder boundary fixtures: \(error)") }
 do {
     let store = try HistoryStore(path: ":memory:")
     let record = Utterance(application: "test", duration: 4, raw: "um hello", cleaned: "Hello.", inserted: "Hello.", outcome: "inserted", latency: 0.5)
@@ -111,14 +139,61 @@ do {
     expect(empty.isEmpty, "style removal")
 } catch { expect(false, "style storage") }
 expect(!RecordingPolicy.shouldFinish(duration: 5, silence: 5, heardSpeech: false, handsFree: true, silenceLimit: 1, maximum: 120), "hands-free waits for first speech")
+do {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let recordings = directory.appendingPathComponent("Recordings")
+    try FileManager.default.createDirectory(at: recordings, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: recordings.path)
+    try PrivateStorage.directory(directory)
+    let database = directory.appendingPathComponent("history.sqlite")
+    let store = try HistoryStore(path: database.path)
+    func mode(_ url: URL) throws -> Int? {
+        try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+    }
+    let supportMode = try mode(directory)
+    let databaseMode = try mode(database)
+    expect(supportMode == 0o700 && databaseMode == 0o600, "legacy support mode repaired and database created private")
+    let record = Utterance(application: "fixture", duration: 1, raw: "synthetic", cleaned: "Synthetic.", inserted: "", outcome: "available", latency: 0)
+    try store.save(record)
+    try store.saveRecording(Data([0, 1, 2]), for: record.id)
+    let audio = recordings.appendingPathComponent(record.id.uuidString + ".wav")
+    let audioMode = try mode(audio)
+    let recordingMode = try mode(recordings)
+    expect(audioMode == 0o600 && recordingMode == 0o700, "retained WAV and recording directory are private")
+    let orphan = recordings.appendingPathComponent(UUID().uuidString + ".wav")
+    try Data([1]).write(to: orphan)
+    try store.prune(.forever)
+    expect(!FileManager.default.fileExists(atPath: orphan.path), "startup-style reconciliation removes legacy orphans even with forever retention")
+    guard chflags(audio.path, UInt32(UF_IMMUTABLE)) == 0 else { throw POSIXError(.EIO) }
+    defer { _ = chflags(audio.path, 0) }
+    do {
+        try store.delete(record.id)
+        expect(false, "failed WAV deletion must preserve its row")
+    } catch {
+        let hasRecord = try store.contains(record.id)
+        expect(hasRecord, "failed WAV deletion leaves the record available for retry")
+    }
+    _ = chflags(audio.path, 0)
+    try store.save(record, retention: .never)
+    let stillPresent = try store.contains(record.id)
+    expect(stillPresent, "never-save suppresses a write without purging from the save path")
+    try store.prune(.never)
+    try store.save(record, retention: .never)
+    let afterOptOut = try store.contains(record.id)
+    expect(!afterOptOut && !FileManager.default.fileExists(atPath: audio.path), "current opt-out blocks repopulation and prunes audio")
+    let link = directory.appendingPathComponent("linked")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: recordings)
+    do { try PrivateStorage.directory(link); expect(false, "private storage refuses symlink directories") }
+    catch { expect(true, "private storage rejects a symlink directory") }
+} catch { expect(false, "retention and private storage fixtures: \(error)") }
+expect(RecordingPolicy.sampleLimit(seconds: 5) == 80000 && RecordingPolicy.sampleLimit(seconds: .infinity) == 1920000, "capture sample cap is independent of timer delivery")
 expect(RecordingPolicy.shouldFinish(duration: 5, silence: 2, heardSpeech: true, handsFree: true, silenceLimit: 1.5, maximum: 120), "hands-free ends on silence")
 expect(!RecordingPolicy.shouldFinish(duration: 5, silence: 2, heardSpeech: true, handsFree: false, silenceLimit: 1.5, maximum: 120), "toggle ignores silence")
 expect(RecordingPolicy.shouldFinish(duration: 120, silence: 0, heardSpeech: false, handsFree: false, silenceLimit: 1.5, maximum: 120), "duration cap always enforced")
 expect(!RecordingPolicy.shouldFinish(duration: 5, silence: 2, heardSpeech: true, handsFree: true, silenceLimit: 1.5, maximum: 120, holdToTalk: true), "hold-to-talk ignores hands-free silence")
 expect(RecordingPolicy.shouldFinish(duration: 120, silence: 0, heardSpeech: false, handsFree: true, silenceLimit: 1.5, maximum: 120, holdToTalk: true), "hold-to-talk still honors the duration cap")
-expect(RecordingPolicy.returnIntent("Send it press enter.", enabled: true).text == "Send it", "terminal return intent extracted")
-expect(!RecordingPolicy.returnIntent("Press enter to continue", enabled: true).pressReturn, "embedded return phrase remains text")
-expect(!RecordingPolicy.returnIntent("Send it press enter", enabled: false).pressReturn, "return disabled by default")
 let cancellationBegan = Date()
 let cancelledProcess = Task { try await LocalProcess.run(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"], input: Data(), timeout: 15) }
 try? await Task.sleep(nanoseconds: 60_000_000)
@@ -129,7 +204,7 @@ do {
     let lower = try EditingCommand.apply("lowercase", selected: "Hello"); expect(lower == "hello", "lowercase editing")
     let shorter = try EditingCommand.apply("make this shorter", selected: "I wanted to let you know that we really need this in order to finish."); expect(shorter == "We need this to finish.", "shorter command preserves key facts")
     let edited = try await CommandRewrite().rewrite(instruction: "make formal", selected: "I can't attend.")
-    expect(edited == "I cannot attend.", "local editing without model")
+    expect(edited == .replacement("I cannot attend."), "local editing without model")
 } catch { expect(false, "known editing commands") }
 do { _ = try await CommandRewrite().rewrite(instruction: "Invent a different story", selected: "Keep this fact."); expect(false, "unsupported instruction rejected without a model") } catch { expect(true, "unsupported editing is explicit") }
 let ownerBoard = NSPasteboard(name: .init("local.murmur.owner." + UUID().uuidString))
@@ -176,7 +251,7 @@ expect(RuleCleanup().apply("let value = 3.2", context: TextContext(application: 
 expect(RuleCleanup().apply("hello there", context: TextContext(application: "com.apple.Terminal", preserveCode: false)) == "Hello there.", "code preservation can be disabled")
 expect(!CleanupFidelity.accepts("Hello.", baseline: "Hello world.", dictionary: []), "model cannot drop content words")
 expect(!CleanupFidelity.accepts("Here is a joke.", baseline: "Tell me a joke.", dictionary: []), "model cannot answer dictation")
-expect(CleanupFidelity.accepts("Hello, world.", baseline: "Hello world.", dictionary: []), "model can adjust punctuation")
+expect(CleanupFidelity.accepts("We arrived.", baseline: "we arrived.", dictionary: []), "model can safely capitalize an ordinary sentence opener")
 expect(!CleanupFidelity.accepts("Try acme.", baseline: "Try Acme.", dictionary: ["Acme"]), "model must preserve dictionary spelling")
 let timerBegan = Date()
 do { _ = try await Deadline.run(seconds: 0.03) { try await Task.sleep(nanoseconds: 2_000_000_000); return "late" }; expect(false, "deadline rejects slow work") }
@@ -186,7 +261,11 @@ catch { expect(false, "deadline fast work succeeds") }
 let deadlineTask = Task { try await Deadline.run(seconds: 10) { try await Task.sleep(nanoseconds: 10_000_000_000); return 7 } }
 deadlineTask.cancel()
 do { _ = try await deadlineTask.value; expect(false, "deadline propagates caller cancellation") } catch { expect(true, "deadline propagates caller cancellation") }
-expect(!CleanupFidelity.accepts("Great.", baseline: "Great!", dictionary: [], preservePunctuation: true), "explicit punctuation retained")
+expect(!CleanupFidelity.accepts("Do not, approve send back.", baseline: "Do not approve, send back.", dictionary: []), "model cannot move punctuation between words")
+expect(!CleanupFidelity.accepts("Dose is 5 mg.", baseline: "Dose is -5 mg.", dictionary: []), "model cannot remove a sign")
+expect(!CleanupFidelity.accepts("The fee is €25.", baseline: "The fee is $25.", dictionary: []), "model cannot change currency")
+expect(!CleanupFidelity.accepts("Use ID ABC 12.", baseline: "Use ID AbC-12.", dictionary: []), "model cannot change an identifier")
+expect(!CleanupFidelity.accepts("Great.", baseline: "Great!", dictionary: []), "explicit punctuation retained")
 expect(CleanupQualification(cases: 90, passed: 90, accepted: 70, p95Seconds: 0.5).eligible, "model eligibility requires quality and speed")
 expect(!CleanupQualification(cases: 90, passed: 89, accepted: 70, p95Seconds: 0.5).eligible, "one failed golden blocks model eligibility")
 expect(!CleanupQualification(cases: 90, passed: 90, accepted: 70, p95Seconds: 1.1).eligible, "slow model cannot qualify")
@@ -206,6 +285,30 @@ let transaction = ClipboardDelivery()
 do {
     var observed = ""
     try await transaction.deliver("Delivered", board: deliveryBoard, delay: 0.01) { observed = deliveryBoard.string(forType: .string) ?? "" }
+    do {
+        try await transaction.deliver("Should not publish", board: deliveryBoard, delay: 0.01, validate: {
+            deliveryBoard.clearContents()
+            deliveryBoard.setString("New owner", forType: .string)
+        }) { expect(false, "clipboard change must prevent posting") }
+        expect(false, "clipboard change must block publication")
+    } catch is ClipboardDelivery.Changed {
+        expect(deliveryBoard.string(forType: .string) == "New owner", "clipboard change during validation preserves new owner")
+    }
+    var validationCalls = 0
+    do {
+        try await transaction.deliver("Published then superseded", board: deliveryBoard, delay: 0.01, validate: {
+            validationCalls += 1
+            if validationCalls == 2 {
+                deliveryBoard.clearContents()
+                deliveryBoard.setString("New owner before posting", forType: .string)
+            }
+        }) { expect(false, "clipboard generation must be rechecked after the last destination check") }
+        expect(false, "lost clipboard offer must block paste")
+    } catch is ClipboardDelivery.Changed {
+        expect(deliveryBoard.string(forType: .string) == "New owner before posting", "new owner survives lost offer")
+    }
+    deliveryBoard.clearContents()
+    deliveryBoard.setString("Prior", forType: .string)
     expect(observed == "Delivered", "paste sees offered clipboard")
     expect(deliveryBoard.string(forType: .string) == "Prior", "transaction restores clipboard")
     do { try await transaction.deliver("Failure", board: deliveryBoard, delay: 0.01) { throw MurmurError.empty }; expect(false, "delivery exception propagates") }
@@ -213,10 +316,13 @@ do {
 } catch { expect(false, "clipboard transaction") }
 deliveryBoard.releaseGlobally()
 expect(DictationLanguage.numbers("FIVE AND SIX") == "5 and 6", "capitalized conjunction does not recurse")
-expect(DictationLanguage.numbers("one and hello") == "1 and hello", "number conversion preserves trailing conjunction")
+expect(DictationLanguage.numbers("one and hello") == "one and hello", "number conversion preserves trailing conjunction")
 expect(!RewriteFidelity.accepts("Meet at 5.", selected: "Meet at 4."), "model rewrite preserves numerical facts")
 expect(!RewriteFidelity.accepts("Visit another company.", selected: "Visit Acme.", protectedTerms: ["Acme"]), "model rewrite preserves protected terms")
-expect(RewriteFidelity.accepts("Acme: 4 seats.", selected: "There are 4 seats at Acme.", protectedTerms: ["Acme"]), "shorter rewrite may preserve facts")
+expect(!RewriteFidelity.accepts("EUR -50 in VX-7.", selected: "USD +50 in ZX-7."), "rewrite cannot change sign and structured identifier")
+expect(!RewriteFidelity.accepts("Dose is 5 mg.", selected: "Dose is .5 mg."), "rewrite preserves decimal punctuation")
+expect(!RewriteFidelity.accepts("Bex pays 4 on Tuesday.", selected: "Ari pays 4 on Monday."), "rewrite preserves likely names and date words")
+expect(RewriteFidelity.accepts("4 seats at Acme.", selected: "There are 4 seats at Acme.", protectedTerms: ["Acme"]), "shorter rewrite may preserve facts")
 do {
     let replacement = try EditingCommand.apply("Replace 3 with 4", selected: "Meet at 3.")
     expect(replacement == "Meet at 4.", "explicit numeric replacement is deterministic")
@@ -225,8 +331,25 @@ do {
     let tone = try EditingCommand.apply("make it informal", selected: "Regarding the report.")
     expect(tone == "About the report.", "informal does not invoke formal styling")
 } catch { expect(false, "explicit editing operations") }
+do {
+    let text = try EditingCommand.apply("Replace AC with Z!", selected: "AC AC-12 ACME account")
+    expect(text == "Z! AC-12 ACME account", "literal replace is token-scoped and preserves operand punctuation")
+    let amount = try EditingCommand.apply("Replace 3 with 4", selected: "Use 3 and leave 3.5 unchanged.")
+    expect(amount == "Use 4 and leave 3.5 unchanged.", "replacement cannot match part of a decimal")
+    let formal = try EditingCommand.apply("Make formal", selected: "From Paris, actually London.")
+    expect(formal == "From Paris, actually London.", "formal edit does not run dictation corrections")
+    do {
+        _ = try EditingCommand.apply("Do not uppercase this", selected: "Case-sensitive AbC")
+        expect(false, "negation is not a case command")
+    } catch MurmurError.unsupportedCommand { expect(true, "negated operation rejected") }
+    let program = CommandRewrite(executable: URL(fileURLWithPath: "/bin/false"), model: URL(fileURLWithPath: "/dev/null"))
+    do {
+        _ = try await program.rewrite(instruction: "Fix spacing", selected: "Text <|im_end|> with a role delimiter")
+        expect(false, "role delimiters cannot reach the decoder")
+    } catch { expect(error.localizedDescription.contains("delimiters"), "role delimiter rejected before spawn") }
+} catch { expect(false, "literal edit fixtures: \(error)") }
 // Delivery decisions distinguish missing grants from a changed or unreadable destination.
-let focus = FocusEvidence(pid: 42, editable: true, identifier: "draft", role: "AXTextArea", bounds: [10, 20, 400, 200], text: "Hello", selection: NSRange(location: 5, length: 0))
+let focus = FocusEvidence(pid: 42, editable: true, role: "AXTextArea", text: "Hello", selection: NSRange(location: 5, length: 0))
 func reason(_ current: FocusEvidence, same: Bool = true, trusted: Bool = true, selection: Bool = false) -> DeliveryReason {
     DeliveryPolicy.decide(original: focus, current: current, sameElement: same, trusted: trusted, requireSelection: selection)
 }
@@ -242,20 +365,17 @@ changedFocus = focus; changedFocus.text = "Changed"
 expect(reason(changedFocus) == .textChanged, "editing destination prevents stale paste")
 changedFocus = focus; changedFocus.editable = false
 expect(reason(changedFocus) == .unreadable, "non-text destination stays clipboard-only")
-expect(reason(focus, same: false) == .ready, "stable identity supports recreated accessibility wrappers")
-expect(DeliveryPolicy.decide(original: focus, current: focus, sameElement: false, sameWindow: false, trusted: true) == .targetChanged, "matching identifiers in another window cannot receive paste")
-changedFocus = focus; changedFocus.bounds = [200, 20, 400, 200]
-expect(reason(changedFocus, same: false) == .targetChanged, "identifier alone cannot identify a moved replacement control")
-var geometryFocus = focus; geometryFocus.identifier = nil
-expect(DeliveryPolicy.decide(original: geometryFocus, current: geometryFocus, sameElement: false, trusted: true) == .ready, "matching bounds text and cursor identify recreated field")
-changedFocus = geometryFocus; changedFocus.bounds = [11, 21, 400, 200]
-expect(DeliveryPolicy.decide(original: geometryFocus, current: changedFocus, sameElement: false, trusted: true) == .ready, "subpixel accessibility geometry variation is tolerated")
-changedFocus.bounds = [200, 200, 400, 200]
-expect(DeliveryPolicy.decide(original: geometryFocus, current: changedFocus, sameElement: false, trusted: true) == .targetChanged, "different field geometry prevents paste")
-changedFocus = geometryFocus; changedFocus.selection = nil
-expect(DeliveryPolicy.decide(original: geometryFocus, current: changedFocus, sameElement: false, trusted: true) == .targetChanged, "missing evidence cannot establish a replacement field")
+expect(reason(focus, same: false) == .targetChanged, "geometry cannot establish the same control")
+expect(DeliveryPolicy.decide(original: focus, current: focus, sameElement: true, sameWindow: false, trusted: true) == .targetChanged, "window is required even when the AX element matches")
+expect(DeliveryPolicy.decide(original: focus, current: focus, sameElement: true, trusted: true, focusChanged: true) == .targetChanged, "observed intervening focus changes prevent paste")
 changedFocus = focus; changedFocus.selection = nil
-expect(reason(changedFocus, selection: true) == .unreadable, "selected-text edits require a readable selection")
+expect(reason(changedFocus) == .cursorChanged, "missing previously known caret blocks paste")
+changedFocus = focus; changedFocus.text = nil
+expect(reason(changedFocus) == .textChanged, "missing previously known value blocks paste")
+let edit = FocusEvidence(pid: 42, editable: true, selection: NSRange(location: 1, length: 2), selectedText: "🌱")
+var changedEdit = edit; changedEdit.selectedText = "🌿"
+expect(DeliveryPolicy.decide(original: edit, current: changedEdit, sameElement: true, trusted: true, requireSelection: true) == .textChanged, "a changed same-length selection without AXValue blocks replacement")
+expect(DeliveryPolicy.decide(original: edit, current: edit, sameElement: true, trusted: true, requireSelection: true) == .ready, "same Unicode selection is eligible")
 expect(!DeliveryReason.accessibility.explanation.isEmpty && DeliveryReason.shortcutHeld.explanation.contains("release"), "delivery feedback identifies a corrective action")
 // Display smoothing is independent of capture chunk timing and handles silence/invalid input.
 expect(AudioMeter.normalized(0) == 0 && AudioMeter.normalized(.nan) == 0, "meter ignores silence and invalid samples")
@@ -276,20 +396,8 @@ for _ in 0..<12 { _ = sixty.advance(rms: 0.02, delta: 1.0 / 60) }
 for _ in 0..<6 { _ = thirty.advance(rms: 0.02, delta: 1.0 / 30) }
 expect(abs(sixty.value - thirty.value) < 0.00001, "meter response is independent of refresh rate")
 let opaque = FocusEvidence(pid: 42, editable: false)
-expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: false, trusted: true) == .unreadable, "opaque focus cannot paste without continuity evidence")
-expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: false, trusted: true, opaqueFocusStable: true) == .ready, "unchanged opaque keyboard focus can paste without an AX field")
-expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: false, sameWindow: false, trusted: true, opaqueFocusStable: true) == .targetChanged, "opaque paste requires the same known window")
-expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: false, trusted: true, requireSelection: true, opaqueFocusStable: true) == .unreadable, "selected-text rewriting cannot use opaque paste")
-var opaqueOther = opaque; opaqueOther.pid = 99
-expect(DeliveryPolicy.decide(original: opaque, current: opaqueOther, sameElement: false, trusted: true, opaqueFocusStable: true) == .targetChanged, "opaque paste cannot follow an app switch")
-opaqueOther = opaque; opaqueOther.protected = true
-expect(DeliveryPolicy.decide(original: opaque, current: opaqueOther, sameElement: false, trusted: true, opaqueFocusStable: true) == .protectedField, "continuity cannot override a protected input")
-opaqueOther = opaque; opaqueOther.role = "AXButton"
-expect(DeliveryPolicy.decide(original: opaque, current: opaqueOther, sameElement: false, trusted: true, opaqueFocusStable: true) == .unreadable, "known non-text controls cannot use opaque paste")
-expect(DeliveryPolicy.decide(original: opaque, current: focus, sameElement: false, trusted: true, opaqueFocusStable: true) == .ready, "late accessibility can reveal a continuously focused editor")
-expect(DeliveryPolicy.decide(original: focus, current: opaque, sameElement: false, trusted: true, opaqueFocusStable: true) == .ready, "continuity supports a temporarily opaque editor")
-var opaqueUpdated = opaque; opaqueUpdated.role = "AXGroup"; opaqueUpdated.text = "Updated surrounding document"
-expect(DeliveryPolicy.decide(original: opaque, current: opaqueUpdated, sameElement: false, trusted: true, opaqueFocusStable: true) == .ready, "opaque container content is not treated as the focused field value")
+expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: true, trusted: true) == .unreadable, "opaque container identity cannot establish keyboard focus")
+expect(DeliveryPolicy.decide(original: opaque, current: focus, sameElement: false, trusted: true) == .unreadable, "late AX revelation cannot replace the initial anchor")
 var activity = FocusActivity()
 activity.key(49, dictationChord: true, toggleKey: 49, holdKey: nil)
 expect(activity.unchanged, "dictation toggle does not invalidate keyboard focus")

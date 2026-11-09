@@ -2,8 +2,7 @@ import AppKit
 import ApplicationServices
 import MurmurCore
 
-/// A recording-scoped proof that an opaque editor's keyboard focus has not been moved by the user.
-/// AX still verifies the app/window and protected input; this fills the gap when no field is exposed.
+/// Records evidence of intervening focus changes during a delivery attempt.
 final class FocusContinuity {
     let pid: pid_t
     private let toggleKey: UInt16
@@ -13,12 +12,15 @@ final class FocusContinuity {
     private var source: CFRunLoopSource?
     private var observer: NSObjectProtocol?
     private(set) var available = false
-    var unchanged: Bool {
-        guard available, let tap, CGEvent.tapIsEnabled(tap: tap) else { return false }
-        return activity.unchanged
+    var invalidated: Bool {
+        !activity.unchanged || (available && tap.map { !CGEvent.tapIsEnabled(tap: $0) } != false)
     }
     init(pid: pid_t, toggleKey: UInt16, holdKey: UInt16?) {
         self.pid = pid; self.toggleKey = toggleKey; self.holdKey = holdKey
+        observer = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            guard let self, let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            if app.processIdentifier != self.pid { self.activity.invalidate() }
+        }
         guard pid > 0, AXIsProcessTrusted(), CGPreflightListenEventAccess() else { return }
         let kinds: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp]
         let mask = kinds.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
@@ -34,13 +36,10 @@ final class FocusContinuity {
             return Unmanaged.passUnretained(event)
         }, userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return }
         self.tap = tap
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)!
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else { self.tap = nil; return }
         self.source = source; CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true); available = true
-        observer = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
-            guard let self, let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            if app.processIdentifier != self.pid { self.activity.invalidate() }
-        }
+
     }
     func stop() {
         available = false

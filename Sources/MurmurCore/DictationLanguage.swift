@@ -8,20 +8,23 @@ public enum DictationLanguage {
     }
     public static func corrections(_ input: String) -> String {
         var text = input
-        let names = #"(\b(?i:in|to|from|with)\s+)([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,3})\s*,?\s*(?i:actually(?:\s+make\s+that)?|no\s+make\s+that|sorry\s+make\s+that)\s+([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,3})"#
+        let cue = #"(?:(?:actually|no|sorry)\s*,?\s+make\s+that)"#
+        // A complete pair of time values, including meridiem, survives ASR sentence boundaries.
+        let time = #"(1[0-2]|[1-9])[.:]([0-5][0-9])[ \t]*([ap])\.?m\.?"#
+        text = replace(text, pattern: #"(?<![\w.])"# + time + #"[.,]?\s+"# + cue + #"\s+"# + time + #"(?=$|[\s,.!?])"#, template: "$4:$5 $6M")
+        text = replace(text, pattern: #"\b(\d{1,2}:\d{2}) pM\b"#, template: "$1 PM")
+        text = replace(text, pattern: #"\b(\d{1,2}:\d{2}) aM\b"#, template: "$1 AM")
+        // Only numeric values cross a sentence boundary, never arbitrary preceding prose.
+        text = replace(text, pattern: #"(?<![\w.,:+−-])\d+(?:\.\d+)?\.\s+"# + cue + #"\s+(\d+(?:\.\d+)?)(?!\w|[.,:]\d)"#, template: "$1")
+        let names = #"(\b(?i:in|to|from|with)\s+)([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,3})\s*,?\s*(?i:"# + cue + #")\s+([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,3})"#
         text = replace(text, pattern: names, template: "$1$3", insensitive: false)
-        let clock = #"(\b(?:at|by|around|until|before|after)\s+)(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*,?\s*(?:actually(?:\s+make\s+that)?|no(?:\s+make\s+that)?|sorry(?:\s+make\s+that)?)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)"#
-        text = replace(text, pattern: clock, template: "$1$3")
         let weekday = "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
-        text = replace(text, pattern: "\\b" + weekday + "\\s*,?\\s*(?:actually(?:\\s+make\\s+that)?|no(?:\\s+make\\s+that)?|sorry(?:\\s+make\\s+that)?)\\s+(" + weekday + ")\\b", template: "$1")
+        text = replace(text, pattern: "\\b" + weekday + "\\s*,?\\s*" + cue + "\\s+(" + weekday + ")\\b", template: "$1")
         let repeatedQuantity = #"(?<![\w.,$+−-])\d+(?:,\d{3})*[ \t]+([\p{L}]+),[ \t]*sorry,[ \t]*(\d+(?:,\d{3})*[ \t]+\1)\b(?!['’-])"#
         text = replace(text, pattern: repeatedQuantity, template: "$2")
-        let number = #"[-+]?\d+(?:[.:]\d+)*(?:%|st|nd|rd|th)?"#
-        text = replace(text, pattern: "(" + number + ")\\s*,?\\s*actually(?:\\s+make\\s+that)?\\s+(" + number + ")", template: "$2")
-        let word = #"(?:[-+]?\d+(?:[.:]\d+)*|[\p{L}][\p{L}'’-]*)"#
-        text = replace(text, pattern: "(" + word + ")\\s*,?\\s*(?:actually\\s+make\\s+that|no\\s+make\\s+that|sorry\\s+make\\s+that)\\s+(" + word + ")", template: "$2")
-        text = replace(text, pattern: "(" + word + ")\\s*,\\s*actually\\s*,?\\s+(" + word + ")", template: "$2")
-        text = replace(text, pattern: #"^.+?[,;.!?]\s*(?:scratch that|never mind)[,;.!?]\s*"#, template: "")
+        let token = #"(?:[+-]?\d+(?:(?:[.:]|,)\d+)*(?:%|st|nd|rd|th)?(?:[ \t]+[ap]m)?)"#
+        text = replace(text, pattern: #"(?<![\w.,:+−-])"# + token + #"\s*,?\s*"# + cue + #"\s+("# + token + #")(?![\w+-]|[.,:]\d)"#, template: "$1")
+
         return text
     }
     public static func numbers(_ input: String) -> String {
@@ -37,13 +40,26 @@ public enum DictationLanguage {
             }
         }
         text = replace(text, pattern: #"\ba\s+(hundred|thousand|million)\b"#, template: "one $1")
+        let digit = "(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)"
+        let digits = digit + "(?:[ \\t-]+" + digit + ")*"
+        let spokenDigits = #"\b(point[ \t]+|(?:code|ID|PIN|identifier)[ \t]+(?:is[ \t]+)?)("# + digits + #")\b(?![ \t]+(?:hundred|thousand|million)\b)"#
+        if let regex = try? NSRegularExpression(pattern: spokenDigits, options: .caseInsensitive) {
+            for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+                guard let full = Range(match.range, in: text), let prefix = Range(match.range(at: 1), in: text),
+                      let group = Range(match.range(at: 2), in: text) else { continue }
+                let joined = text[group].lowercased().split(whereSeparator: { $0.isWhitespace || $0 == "-" })
+                    .compactMap { units[String($0)].map(String.init) }.joined()
+                text.replaceSubrange(full, with: String(text[prefix]) + joined)
+            }
+        }
         let vocabulary = units.keys.filter { $0 != "oh" }.sorted().joined(separator: "|")
         let expression = "\\b(?:" + vocabulary + ")(?:[ -]+(?:" + vocabulary + "|hundred|thousand|million|and(?=[ -]+(?:" + vocabulary + "))))*\\b"
         if let regex = try? NSRegularExpression(pattern: expression, options: [.caseInsensitive]) {
             for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
                 guard let range = Range(match.range, in: text) else { continue }
                 let original = String(text[range]); let tail = String(text[range.upperBound...])
-                if original.lowercased() == "one", tail.range(of: #"^\s+(?:of|another)\b"#, options: [.regularExpression, .caseInsensitive]) != nil { continue }
+                // Ambiguous standalone “one” is prose unless a quantity is explicit.
+                if original.lowercased() == "one", tail.range(of: #"^\s+(?:invoice|receipt|ticket|item|day|week|month|year|hour|minute|second|dollar|rupee|percent|point)\b"#, options: [.regularExpression, .caseInsensitive]) == nil { continue }
                 text.replaceSubrange(range, with: renderNumber(original))
             }
         }

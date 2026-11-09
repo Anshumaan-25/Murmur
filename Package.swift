@@ -9,6 +9,6 @@ let package = Package(
         .target(name: "MurmurCore", dependencies: ["CSQLite"]),
         .executableTarget(name: "MurmurApp", dependencies: ["MurmurCore"]),
         .executableTarget(name: "MurmurBench", dependencies: ["MurmurCore"]),
-        .executableTarget(name: "murmur-tests", dependencies: ["MurmurCore"], path: "tests", exclude: ["audio", "PasteTarget.swift"], sources: ["CoreTests.swift"], resources: [.copy("golden")])
+        .executableTarget(name: "murmur-tests", dependencies: ["MurmurCore"], path: "tests", exclude: ["audio", "PasteTarget.swift", "PackagingChecks.py", "SpeechProtocolChecks.py", "QualityChecks.py"], sources: ["CoreTests.swift", "PolishTests.swift"], resources: [.copy("golden")])
     ], swiftLanguageModes: [.v5]
 )

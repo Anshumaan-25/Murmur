@@ -12,7 +12,8 @@ public enum AudioTools {
     public static func frames(_ samples: [Float]) -> [AudioFrame] {
         stride(from: 0, to: samples.count, by: frameCount).map { AudioFrame(Array(samples[$0..<min(samples.count, $0 + frameCount)])) }
     }
-    public static func trimmed(_ frames: [AudioFrame], threshold: Float = 0.008, padding: Int = 5) -> [AudioFrame] {
+    public static func trimmed(_ frames: [AudioFrame], threshold: Float = 0, padding: Int = 5) -> [AudioFrame] {
+        // Trim digital silence only. A fixed volume threshold is not a speech detector.
         guard let first = frames.firstIndex(where: { $0.rms > threshold }), let last = frames.lastIndex(where: { $0.rms > threshold }) else { return [] }
         return Array(frames[max(0, first - padding)...min(frames.count - 1, last + padding)])
     }

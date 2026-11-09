@@ -1,5 +1,6 @@
 import Foundation
 import CSQLite
+import Darwin
 
 public struct Utterance: Codable, Sendable, Identifiable {
     public var id: UUID
@@ -17,10 +18,32 @@ public struct Utterance: Codable, Sendable, Identifiable {
 }
 public enum Retention: String, CaseIterable, Codable { case forever, day, never }
 public final class HistoryStore {
+    private let recordings: URL?
     private var connection: OpaquePointer?
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     public init(path: String) throws {
-        guard sqlite3_open_v2(path, &connection, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { throw MurmurError.unavailable("Cannot open local history.") }
+        let openPath: String
+        if path == ":memory:" {
+            openPath = path
+            recordings = nil
+        } else {
+            let requested = URL(fileURLWithPath: path)
+            // Foundation can retain macOS's /var alias even after resolving a URL.
+            // SQLite's NOFOLLOW mode needs the actual spelling of the parent path.
+            guard let parent = realpath(requested.deletingLastPathComponent().path, nil) else { throw PrivateStorage.error() }
+            defer { free(parent) }
+            openPath = String(cString: parent) + "/" + requested.lastPathComponent
+            let file = URL(fileURLWithPath: openPath)
+            let journal = URL(fileURLWithPath: openPath + "-journal")
+            recordings = file.deletingLastPathComponent().appendingPathComponent("Recordings", isDirectory: true)
+            try PrivateStorage.file(file, create: true)
+            do { try PrivateStorage.file(journal) }
+            catch let error as POSIXError where error.code == .ENOENT {}
+        }
+        guard sqlite3_open_v2(openPath, &connection, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW, nil) == SQLITE_OK else {
+            sqlite3_close(connection)
+            throw MurmurError.unavailable("Cannot open local history.")
+        }
         sqlite3_busy_timeout(connection, 2000)
         try execute("PRAGMA journal_mode=DELETE")
         try execute("PRAGMA secure_delete=ON")
@@ -37,7 +60,6 @@ public final class HistoryStore {
     private func bind(_ strings: [String], to stmt: OpaquePointer, from: Int32 = 1) { for (index, value) in strings.enumerated() { sqlite3_bind_text(stmt, from + Int32(index), value, -1, transient) } }
     private func complete(_ stmt: OpaquePointer) throws { guard sqlite3_step(stmt) == SQLITE_DONE else { throw MurmurError.unavailable("Cannot save local data.") } }
     public func save(_ record: Utterance, retention: Retention = .forever) throws {
-        try prune(retention)
         guard retention != .never else { return }
         let stmt = try statement("INSERT OR REPLACE INTO utterances VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"); defer { sqlite3_finalize(stmt) }
         bind([record.id.uuidString], to: stmt); sqlite3_bind_double(stmt, 2, record.timestamp.timeIntervalSince1970); bind([record.application], to: stmt, from: 3); sqlite3_bind_double(stmt, 4, record.duration); bind([record.raw, record.cleaned, record.inserted, record.outcome], to: stmt, from: 5); sqlite3_bind_double(stmt, 9, record.latency); try complete(stmt)
@@ -50,10 +72,59 @@ public final class HistoryStore {
         while sqlite3_step(stmt) == SQLITE_ROW { if let id = UUID(uuidString: text(0)) { result.append(Utterance(id: id, timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)), application: text(2), duration: sqlite3_column_double(stmt, 3), raw: text(4), cleaned: text(5), inserted: text(6), outcome: text(7), latency: sqlite3_column_double(stmt, 8))) } }
         return result
     }
-    public func delete(_ id: UUID) throws { let stmt = try statement("DELETE FROM utterances WHERE identity = ?"); defer { sqlite3_finalize(stmt) }; bind([id.uuidString], to: stmt); try complete(stmt) }
+    public func contains(_ id: UUID) throws -> Bool {
+        let stmt = try statement("SELECT 1 FROM utterances WHERE identity = ?")
+        defer { sqlite3_finalize(stmt) }
+        bind([id.uuidString], to: stmt)
+        switch sqlite3_step(stmt) {
+        case SQLITE_ROW: return true
+        case SQLITE_DONE: return false
+        default: throw MurmurError.unavailable("Cannot read local history.")
+        }
+    }
+    public func saveRecording(_ wav: Data, for id: UUID) throws {
+        guard let recordings, try contains(id) else { throw MurmurError.unavailable("Recording has no history entry.") }
+        try PrivateStorage.directory(recordings)
+        try PrivateStorage.write(wav, to: recordings.appendingPathComponent(id.uuidString + ".wav"))
+    }
+    public func delete(_ id: UUID) throws {
+        if let recordings {
+            do {
+                try PrivateStorage.existingDirectory(recordings)
+                try removeRecording(recordings.appendingPathComponent(id.uuidString + ".wav"))
+            } catch let error as POSIXError where error.code == .ENOENT {}
+        }
+        let stmt = try statement("DELETE FROM utterances WHERE identity = ?")
+        defer { sqlite3_finalize(stmt) }
+        bind([id.uuidString], to: stmt)
+        try complete(stmt)
+    }
     public func prune(_ retention: Retention, now: Date = Date()) throws {
         if retention == .never { try execute("DELETE FROM utterances"); try execute("VACUUM") }
         if retention == .day { let stmt = try statement("DELETE FROM utterances WHERE moment < ?"); defer { sqlite3_finalize(stmt) }; sqlite3_bind_double(stmt, 1, now.addingTimeInterval(-86400).timeIntervalSince1970); try complete(stmt) }
+        try reconcileRecordings()
+    }
+    private func reconcileRecordings() throws {
+        guard let recordings else { return }
+        do { try PrivateStorage.existingDirectory(recordings) }
+        catch let error as POSIXError where error.code == .ENOENT { return }
+        let entries = try FileManager.default.contentsOfDirectory(at: recordings, includingPropertiesForKeys: nil)
+        var failure: Error?
+        for file in entries {
+            do {
+                if file.lastPathComponent.hasPrefix(".keydown-write-"),
+                   UUID(uuidString: String(file.lastPathComponent.dropFirst(".keydown-write-".count))) != nil {
+                    try removeRecording(file)
+                } else if file.pathExtension == "wav", let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent) {
+                    if try contains(id) { try PrivateStorage.file(file) }
+                    else { try removeRecording(file) }
+                }
+            } catch { failure = error }
+        }
+        if let failure { throw failure }
+    }
+    private func removeRecording(_ file: URL) throws {
+        if unlink(file.path) != 0, errno != ENOENT { throw PrivateStorage.error() }
     }
     public func dictionary() throws -> [String] {
         let stmt = try statement("SELECT term FROM lexicon ORDER BY term"); defer { sqlite3_finalize(stmt) }; var output: [String] = []

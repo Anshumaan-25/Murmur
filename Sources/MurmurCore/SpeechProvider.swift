@@ -53,11 +53,15 @@ public struct ExecutableSpeechProvider: SpeechProvider {
     public var model: URL
     public var useGPU: Bool
     private let timestampDecoding: Bool
-    public init(executable: URL, model: URL, useGPU: Bool = true, timestampDecoding: Bool = true) {
+    private let approval: DecoderApproval?
+    public let privateProtocol: Bool
+    public init(executable: URL, model: URL, useGPU: Bool = true, timestampDecoding: Bool = true, approval: DecoderApproval? = nil, privateProtocol: Bool = false) {
         self.executable = executable
         self.model = model
         self.useGPU = useGPU
         self.timestampDecoding = timestampDecoding
+        self.approval = approval
+        self.privateProtocol = privateProtocol
     }
     public func transcribe(_ audio: [AudioFrame], language: String, vocabulary: [String]) async throws -> SpeechResult {
         let start = Date()
@@ -65,8 +69,13 @@ public struct ExecutableSpeechProvider: SpeechProvider {
         // The decoder uses timestamp tokens to find speech boundaries. The TXT output omits timestamps.
         if !timestampDecoding { arguments.append("-nt") }
         if !useGPU { arguments.append("-ng") }
-        if !vocabulary.isEmpty { arguments += ["--prompt", vocabulary.joined(separator: ", ")] }
-        let output = try await LocalProcess.run(executable: executable, arguments: arguments, input: AudioTools.wav(audio), timeout: 60)
+        let wav = AudioTools.wav(audio)
+        let input: Data
+        if privateProtocol {
+            arguments.append("--keydown-request-v1")
+            input = try SpeechRequest.encode(wav: wav, vocabulary: vocabulary)
+        } else { input = wav }
+        let output = try await LocalProcess.run(executable: executable, arguments: arguments, input: input, timeout: 60, approval: approval)
         let text: String
         if timestampDecoding {
             text = output.split(whereSeparator: \.isNewline)
@@ -76,51 +85,10 @@ public struct ExecutableSpeechProvider: SpeechProvider {
         } else {
             text = output.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        guard !text.isEmpty else { throw MurmurError.empty }
+        guard !text.isEmpty, !(privateProtocol && text == "[BLANK_AUDIO]") else { throw MurmurError.empty }
         return SpeechResult(text: text, seconds: Date().timeIntervalSince(start))
     }
 }
-private final class ProcessControl: @unchecked Sendable {
-    let lock = NSLock()
-    var process: Process?
-    var cancelled = false
-    func start(_ value: Process) throws {
-        lock.lock(); defer { lock.unlock() }
-        guard !cancelled else { throw CancellationError() }
-        try value.run(); process = value
-    }
-    func cancel() {
-        lock.lock(); cancelled = true; let value = process; lock.unlock()
-        if let value, value.isRunning { value.terminate() }
-    }
-}
-public enum LocalProcess {
-    public static func run(executable: URL, arguments: [String], input: Data, timeout: TimeInterval) async throws -> String {
-        let control = ProcessControl()
-        return try await withTaskCancellationHandler(operation: {
-            try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let process = Process(); let source = Pipe(); let destination = Pipe()
-                    _ = fcntl(source.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-                    process.executableURL = executable; process.arguments = arguments
-                    process.standardInput = source; process.standardOutput = destination; process.standardError = FileHandle.nullDevice
-                    do {
-                        try control.start(process)
-                        let deadline = DispatchWorkItem { control.cancel() }
-                        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
-                        DispatchQueue.global().async { do { try source.fileHandleForWriting.write(contentsOf: input) } catch {} ; try? source.fileHandleForWriting.close() }
-                        let output = destination.fileHandleForReading.readDataToEndOfFile()
-                        process.waitUntilExit(); deadline.cancel()
-                        guard process.terminationStatus == 0 else { throw MurmurError.unavailable("Local decoder stopped before completion.") }
-                        continuation.resume(returning: String(data: output, encoding: .utf8) ?? "")
-                    } catch { continuation.resume(throwing: error) }
-                }
-            }
-        }, onCancel: { control.cancel() })
-    }
-}
-
 public struct LegacySystemSpeechProvider: SpeechProvider {
     public let name = "System dictation (on-device)"
     public init() {}

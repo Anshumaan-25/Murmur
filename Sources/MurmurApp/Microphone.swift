@@ -14,13 +14,16 @@ final class Microphone {
     private var levelValue: Float = 0
     private var audioUptime: Double = 0
     private var voiceUptime: Double = 0
-    struct Meter { let rms: Float; let lastVoice: Double }
+    private var activity = SpeechActivity()
+    private var peakValue: Float = 0
+    private var received = false
+    struct Meter { let rms: Float; let lastVoice: Double; let received: Bool; let lastBuffer: Double; let signal: AudioSignal }
     func meter() -> Meter {
         lock.lock(); defer { lock.unlock() }
-        return Meter(rms: ProcessInfo.processInfo.systemUptime - audioUptime < 0.18 ? levelValue : 0, lastVoice: voiceUptime)
+        return Meter(rms: ProcessInfo.processInfo.systemUptime - audioUptime < 0.18 ? levelValue : 0, lastVoice: voiceUptime, received: received, lastBuffer: audioUptime, signal: AudioSignal.classify(rms: levelValue, peak: peakValue, received: received))
     }
     var inputDevice: AudioDeviceID = 0
-    func start() throws {
+    func start(maximumSeconds: Double, onReady: @escaping @MainActor () -> Void = {}, onLimit: @escaping @MainActor () -> Void) throws {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw MurmurError.unavailable("Enable Keydown microphone access in System Settings.") }
         let engine = AVAudioEngine()
         let node = engine.inputNode
@@ -34,7 +37,8 @@ final class Microphone {
         let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AudioTools.rate, channels: 1, interleaved: false)!
         guard let converter = AVAudioConverter(from: source, to: target) else { throw MurmurError.invalidAudio }
         let generation = UUID()
-        lock.lock(); samples = []; samples.reserveCapacity(1_920_000); levelValue = 0; voiceUptime = 0; audioUptime = 0; running = true; self.generation = generation; lock.unlock()
+        let limit = RecordingPolicy.sampleLimit(seconds: maximumSeconds)
+        lock.lock(); samples = []; samples.reserveCapacity(min(limit, 1_920_000)); levelValue = 0; peakValue = 0; received = false; voiceUptime = 0; activity = SpeechActivity(); audioUptime = 0; running = true; self.generation = generation; lock.unlock()
         node.installTap(onBus: 0, bufferSize: 2048, format: source) { [weak self] input, _ in
             guard let self else { return }
             guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: AVAudioFrameCount(Double(input.frameLength) * target.sampleRate / source.sampleRate + 128)) else { return }
@@ -47,8 +51,14 @@ final class Microphone {
             let rms = AudioFrame(chunk).rms; let now = ProcessInfo.processInfo.systemUptime
             self.lock.lock()
             if self.running && self.generation == generation {
-                self.samples.append(contentsOf: chunk); self.levelValue = rms; self.audioUptime = now
-                if rms > 0.008 { self.voiceUptime = now }
+                self.samples.append(contentsOf: chunk.prefix(limit - self.samples.count))
+                self.levelValue = rms; self.peakValue = chunk.reduce(Float(0)) { max($0, abs($1)) }; self.audioUptime = now
+                if !self.received { self.received = true; DispatchQueue.main.async { onReady() } }
+                if self.activity.observe(rms: rms, uptime: now) { self.voiceUptime = now }
+                if self.samples.count == limit {
+                    self.running = false
+                    DispatchQueue.main.async { onLimit() }
+                }
             }
             self.lock.unlock()
         }
