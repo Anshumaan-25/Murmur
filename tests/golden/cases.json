@@ -394,5 +394,33 @@
   {
     "input": "read “one point oh five” aloud",
     "expected": "Read “one point oh five” aloud."
+  },
+  {
+    "input": "Reference 123/456 actually make that 789.",
+    "expected": "Reference 123/456 actually make that 789."
+  },
+  {
+    "input": "Date 12/11/2026. Actually make that 2027.",
+    "expected": "Date 12/11/2026. Actually make that 2027."
+  },
+  {
+    "input": "The value is 3. Actually make that 4-AB.",
+    "expected": "The value is 3. Actually make that 4-AB."
+  },
+  {
+    "input": "Version 3.14.2 actually make that 4.0.1.",
+    "expected": "Version 3.14.2 actually make that 4.0.1."
+  },
+  {
+    "input": "The value is 3 actually make that 4:AB.",
+    "expected": "The value is 3 actually make that 4:AB."
+  },
+  {
+    "input": "Reference 123/456 invoices, sorry, 789 invoices.",
+    "expected": "Reference 123/456 invoices, sorry, 789 invoices."
+  },
+  {
+    "input": "The discount is 7.05% actually make that 8.5%.",
+    "expected": "The discount is 8.5%."
   }
 ]

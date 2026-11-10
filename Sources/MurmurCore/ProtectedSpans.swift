@@ -15,7 +15,10 @@ struct ProtectedSpans {
         return replace(text, pattern: "\\b(?:" + terms.joined(separator: "|") + ")\\b")
     }
     mutating func maskStructured(_ text: String) -> String {
-        replace(text, pattern: #"\b(?:[ap]\.)m\.|(?<![\p{L}\p{N}_])[+−-]?\d+(?:[.,:/-]\d+)+(?:%|\b)|\b[\p{L}]+[\p{N}]+(?:[-_.][\p{L}\p{N}]+)*\b|\b[\p{L}]+[-_][\p{L}\p{N}_-]+\b"#)
+        // Numeric compounds may contain letter components too (4:AB, 123/XYZ).
+        // Inserting punctuation spaces could turn one operand into separate words
+        // and make an ambiguous correction look valid on a subsequent cleanup.
+        replace(text, pattern: #"\b(?:[ap]\.)m\.|(?<![\p{L}\p{N}_])[+−-]?\d+(?:[.,:/-][\p{L}\p{N}_]+)+(?:%|\b)|\b[\p{L}]+[\p{N}]+(?:[-_.][\p{L}\p{N}]+)*\b|\b[\p{L}]+[-_][\p{L}\p{N}_-]+\b"#)
     }
     private mutating func replace(_ text: String, pattern: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }

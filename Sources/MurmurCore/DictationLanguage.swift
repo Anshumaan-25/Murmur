@@ -9,21 +9,31 @@ public enum DictationLanguage {
     public static func corrections(_ input: String) -> String {
         var text = input
         let cue = #"(?:(?:actually|no|sorry)\s*,?\s+make\s+that)"#
+        // Recognize complete whitespace-delimited operands, never a numeric substring
+        // inside an ID, date, version, currency expression or unknown notation. Only
+        // sentence punctuation followed by whitespace/end may terminate an operand.
+        let start = #"(?<!\S)"#
+        let end = #"(?=$|\s|[.,!?;:](?=\s|$))"#
+        let correction = #"[.,]?\s+"# + cue + #"\s+"#
         // A complete pair of time values, including meridiem, survives ASR sentence boundaries.
-        let time = #"(1[0-2]|[1-9])[.:]([0-5][0-9])[ \t]*([ap])\.?m\.?"#
-        text = replace(text, pattern: #"(?<![\w.])"# + time + #"[.,]?\s+"# + cue + #"\s+"# + time + #"(?=$|[\s,.!?])"#, template: "$4:$5 $6M")
+        let time = #"(1[0-2]|[1-9])[.:]([0-5][0-9])[ \t]*([ap])\.?m"#
+        text = replace(text, pattern: start + time + #"\.?"# + correction + time + end, template: "$4:$5 $6M")
         text = replace(text, pattern: #"\b(\d{1,2}:\d{2}) pM\b"#, template: "$1 PM")
         text = replace(text, pattern: #"\b(\d{1,2}:\d{2}) aM\b"#, template: "$1 AM")
-        // Only numeric values cross a sentence boundary, never arbitrary preceding prose.
-        text = replace(text, pattern: #"(?<![\w.,:+−-])\d+(?:\.\d+)?\.\s+"# + cue + #"\s+(\d+(?:\.\d+)?)(?!\w|[.,:]\d)"#, template: "$1")
         let names = #"(\b(?i:in|to|from|with)\s+)([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,3})\s*,?\s*(?i:"# + cue + #")\s+([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,3})"#
         text = replace(text, pattern: names, template: "$1$3", insensitive: false)
         let weekday = "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
         text = replace(text, pattern: "\\b" + weekday + "\\s*,?\\s*" + cue + "\\s+(" + weekday + ")\\b", template: "$1")
-        let repeatedQuantity = #"(?<![\w.,$+−-])\d+(?:,\d{3})*[ \t]+([\p{L}]+),[ \t]*sorry,[ \t]*(\d+(?:,\d{3})*[ \t]+\1)\b(?!['’-])"#
+        let repeatedQuantity = start + #"\d+(?:,\d{3})*[ \t]+([\p{L}]+),[ \t]*sorry,[ \t]*(\d+(?:,\d{3})*[ \t]+\1)"# + end
         text = replace(text, pattern: repeatedQuantity, template: "$2")
-        let token = #"(?:[+-]?\d+(?:(?:[.:]|,)\d+)*(?:%|st|nd|rd|th)?(?:[ \t]+[ap]m)?)"#
-        text = replace(text, pattern: #"(?<![\w.,:+−-])"# + token + #"\s*,?\s*"# + cue + #"\s+("# + token + #")(?![\w+-]|[.,:]\d)"#, template: "$1")
+        let scalar = #"[+−-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"#
+        // Match the same kind on both sides. Unsupported structured values remain
+        // literal, rather than guessing whether a fragment replaces a whole value.
+        let operands = [scalar, scalar + "%", #"\d+(?:st|nd|rd|th)"#,
+                        #"(?:[01]?\d|2[0-3]):[0-5]\d"#, #"(?:1[0-2]|[1-9])[ \t]+[ap]m"#]
+        for operand in operands {
+            text = replace(text, pattern: start + operand + correction + "(" + operand + ")" + end, template: "$1")
+        }
 
         return text
     }

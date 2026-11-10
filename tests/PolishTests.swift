@@ -2,6 +2,10 @@ import Foundation
 import MurmurCore
 
 func polishProtocolChecks() async {
+    let structured = "Reference 123/456 actually make that 789."
+    let optional = await SystemCleanup(budget: 0.01).attempt(structured, context: TextContext())
+    expect(optional.text == structured, "optional cleanup provider preserves ambiguous structured correction")
+    expect(!CleanupFidelity.accepts("Reference 123/789.", baseline: structured, dictionary: []), "optional model gate rejects the original composite-ID regression")
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
@@ -36,6 +40,7 @@ func polishProtocolChecks() async {
 }
 
 func polishTextChecks() {
+    structuredCorrectionChecks()
     let mediaDefaults = try? JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
     expect(mediaDefaults?.pauseMedia == true, "media pause defaults on for existing preferences")
     var mediaDisabled = Preferences(); mediaDisabled.pauseMedia = false
@@ -129,4 +134,72 @@ func polishTextChecks() {
     }
     let dictionary = TextContext(dictionary: ["eBay", "iPhone", "PostgreSQL"])
     expect(RuleCleanup().apply("ebay works with PostgreSQL.", context: dictionary) == "eBay works with PostgreSQL.", "configured spelling survives sentence capitalization")
+}
+
+func structuredCorrectionChecks() {
+    let preserved = [
+        "Reference 123/456 actually make that 789.",
+        "Date 12/11/2026 actually make that 2027.",
+        "Date 12/11/2026. Actually make that 2027.",
+        "The value is 3. Actually make that 4-AB.",
+        "Reference 123-456 actually make that 789.",
+        "Reference 123_456 actually make that 789.",
+        "Reference AB007 actually make that 070.",
+        "Reference AB-007 actually make that AB-070.",
+        "Reference 123\\456 actually make that 789.",
+        "Reference 123·456 actually make that 789.",
+        "Version 3.14.2 actually make that 4.0.1.",
+        "Version 3.14.2. Actually make that 4.",
+        "The value is 3 actually make that 4/789.",
+        "The value is 3 actually make that 4.0.1.",
+        "The value is 3 actually make that 4_AB.",
+        "The value is 3 actually make that 4–AB.",
+        "The value is 3 actually make that 4@AB.",
+        "The value is 3 actually make that 4#AB.",
+        "The value is 3 actually make that 4:AB.",
+        "The value is 3 actually make that 4,AB.",
+        "The value is 3 actually make that 4.00USD.",
+        "The value is $3 actually make that 4.",
+        "The value is 3 actually make that 4%.",
+        "Reference 123/456 invoices, sorry, 789 invoices.",
+        "Reference 123/5.15 p.m. Actually make that 5.50 p.m.",
+        "Meet at 5.15 p.m. Actually make that 5.50 p.m./AB.",
+        "Do not actually make that payment."
+    ]
+    for input in preserved {
+        expect(DictationLanguage.corrections(input) == input, "whole correction operands: \(input)")
+        let baseline = RuleCleanup().apply(input)
+        expect(baseline == input, "rule pipeline preserves ambiguous correction: \(input) -> \(baseline)")
+        expect(RuleCleanup().apply(baseline) == baseline, "ambiguous correction remains safe on repeated cleanup")
+        expect(RuleCleanup().apply(input, context: TextContext(mode: .exact)) == input, "exact mode preserves correction: \(input)")
+        expect(!CleanupFidelity.accepts("Changed value.", baseline: baseline, dictionary: []), "optional cleanup cannot rewrite preserved operands")
+    }
+    // Both original and replacement must be complete values, across the same
+    // sentence and ASR-inserted sentence boundaries. Test unknown separators too.
+    for separator in ["/", "\\", "-", "_", ".", ":", "@", "#", "·", "–", "=", "+", "％"] {
+        for gap in [" ", ". "] {
+            for (old, new) in [("123" + separator + "456" + (separator == "." ? ".7" : ""), "789"), ("123", "789" + separator + "ABC")] {
+                let input = "Reference \(old)\(gap)actually make that \(new)."
+                expect(DictationLanguage.corrections(input) == input, "complete operand boundary matrix: \(input)")
+            }
+        }
+    }
+    let corrected = [
+        ("The value is 3 actually make that 4.", "The value is 4."),
+        ("The value is 3. Actually make that 4.", "The value is 4."),
+        ("The value is 3.25. Actually make that 4.75.", "The value is 4.75."),
+        ("Pay 1,205 actually make that 12,500.", "Pay 12,500."),
+        ("The value is -3.25 actually make that +4.75.", "The value is +4.75."),
+        ("The discount is 7.05% actually make that 8.5%.", "The discount is 8.5%."),
+        ("Choose 3rd actually make that 4th.", "Choose 4th."),
+        ("Meet at 5:15 actually make that 5:50.", "Meet at 5:50."),
+        ("Meet at 5.15 p.m. Actually make that 5.50 p.m.", "Meet at 5:50 PM."),
+        ("Send 1,500 invoices, sorry, 2,500 invoices.", "Send 2,500 invoices."),
+        ("The value is 3, sorry make that 4, and keep going.", "The value is 4, and keep going.")
+    ]
+    for (input, output) in corrected {
+        expect(DictationLanguage.corrections(input) == output, "complete numeric correction: \(input)")
+        expect(RuleCleanup().apply(input) == output, "complete numeric correction through pipeline: \(input)")
+        expect(RuleCleanup().apply(output) == output, "corrected numeric output is idempotent")
+    }
 }
