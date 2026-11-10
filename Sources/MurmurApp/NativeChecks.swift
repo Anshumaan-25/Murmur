@@ -170,6 +170,38 @@ import MurmurCore
             results["resume_stays_idle_without_microphone"] = controller.sessions.phase == .idle && !controller.microphone.isCapturing && !controller.indicator.panel.isVisible
             controller.setSuspended(true)
         }
+        do {
+            var pauses = 0
+            let controller = DictationController(ephemeral: true, pauseMedia: { pauses += 1; return true })
+            controller.toggle(); controller.cancel()
+            await Task.yield()
+            results["cancel_before_preparation_sends_no_pause"] = pauses == 0
+            pauses = 0
+            controller.toggle()
+            await Task.yield()
+            results["toggle_requests_media_pause_before_capture"] = pauses == 1 && !controller.microphone.isCapturing
+            controller.cancel()
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            results["cancel_during_media_pause_cannot_start_microphone"] = controller.sessions.phase == .cancelled && !controller.microphone.isCapturing
+            controller.hotkeys.hold?(true)
+            await Task.yield()
+            results["hold_requests_media_pause"] = pauses == 2
+            controller.hotkeys.hold?(false)
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            results["hold_release_during_media_pause_stays_stopped"] = controller.sessions.phase == .cancelled && !controller.microphone.isCapturing
+            controller.preferences.pauseMedia = false
+            controller.toggle(); await Task.yield()
+            results["disabled_media_pause_sends_no_command"] = pauses == 2
+            controller.setSuspended(true)
+            controller.start(); await Task.yield()
+            results["suspended_session_does_not_pause_media"] = pauses == 2
+            let unavailable = DictationController(ephemeral: true, pauseMedia: { false })
+            unavailable.start(); await Task.yield()
+            results["failed_pause_dispatch_is_not_reported_as_success"] = unavailable.mediaPauseStatus == "unavailable"
+            unavailable.setSuspended(true)
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            results["sleep_during_media_pause_stays_stopped"] = !unavailable.microphone.isCapturing && unavailable.isSuspended
+        }
         let links = ["Privacy_Microphone", "Privacy_Accessibility", "Privacy_ListenEvent"]
         for link in links {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + link) { results["settings_handler_" + link] = NSWorkspace.shared.urlForApplication(toOpen: url) != nil }

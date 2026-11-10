@@ -364,9 +364,10 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         body.addArrangedSubview(row([label("Hold-to-talk key"), holdPicker]))
         enginePicker = NSPopUpButton(); enginePicker.addItems(withTitles: SpeechEngine.allCases.map(\.title)); enginePicker.selectItem(at: SpeechEngine.allCases.firstIndex(of: prefs.speechEngine) ?? 0)
         body.addArrangedSubview(row([label("Speech engine"), enginePicker]))
-        for (key, title, value) in [("hold", "Enable the selected hold-to-talk key", prefs.holdEnabled), ("code", "Preserve exact syntax in code editors and terminals", prefs.preserveCode), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
+        for (key, title, value) in [("pauseMedia", "Pause current media before dictation", prefs.pauseMedia), ("hold", "Enable the selected hold-to-talk key", prefs.holdEnabled), ("code", "Preserve exact syntax in code editors and terminals", prefs.preserveCode), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
             let check = NSButton(checkboxWithTitle: title, target: nil, action: nil); check.state = value ? .on : .off; checks[key] = check; body.addArrangedSubview(check)
         }
+        body.addArrangedSubview(label("Media stays paused afterward. Pause targets the macOS Now Playing session; unsupported or simultaneous players may need manual pausing. No system volume changes."))
         let holdHelp = prefs.holdKey == .globe ? "Set Keyboard → Press globe key → Do Nothing to avoid the emoji picker." : "Your chosen hold key is passed through to the app you are using."
         body.addArrangedSubview(label("Hold your chosen key by itself. " + holdHelp + " Editing: Control Option R. Paste previous: Control Option V."))
         for (key, title, value) in [("silence", "Silence before hands-free finishes (seconds)", prefs.silenceSeconds), ("maximum", "Maximum recording (seconds)", prefs.maximumSeconds), ("clipboard", "Clipboard recovery delay (seconds)", prefs.clipboardDelay)] {
@@ -475,6 +476,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         p.microphone = micIDs[max(0, micPicker.indexOfSelectedItem)]; p.language = ["en-US", "en-IN", "en-GB"][max(0, languagePicker.indexOfSelectedItem)]
         p.dictationMode = DictationMode.allCases[max(0, modePicker.indexOfSelectedItem)]
         p.retention = Retention.allCases[max(0, retentionPicker.indexOfSelectedItem)]; p.toggleKey = hotkeyPicker.indexOfSelectedItem == 1 ? 2 : 49
+        p.pauseMedia = checks["pauseMedia"]?.state == .on
         p.useModel = checks["model"]?.state == .on && controller.modelPassValidated; p.holdEnabled = checks["hold"]?.state == .on; p.holdKey = HoldKey.allCases[max(0, holdPicker.indexOfSelectedItem)]; p.speechEngine = SpeechEngine.allCases[max(0, enginePicker.indexOfSelectedItem)]; p.preserveCode = checks["code"]?.state == .on; p.handsFree = checks["hands"]?.state == .on; p.contextEnabled = checks["context"]?.state == .on; p.keepAudio = checks["audio"]?.state == .on
         p.silenceSeconds = max(0.5, min(10, fields["silence"]?.doubleValue ?? 1.5)); p.maximumSeconds = max(5, min(600, fields["maximum"]?.doubleValue ?? 120)); p.clipboardDelay = max(0.1, min(2, fields["clipboard"]?.doubleValue ?? 0.35))
         controller.preferences = p

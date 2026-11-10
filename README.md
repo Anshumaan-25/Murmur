@@ -24,6 +24,8 @@ A checkout without downloaded resources still compiles and uses the system speec
 
 ## Daily use
 
+Keydown requests a pause of the current macOS media session before either hold or toggle dictation and leaves playback paused afterward. Settings can disable this. Multiple players and apps that ignore media controls may still need manual pausing; see [media pause behavior](docs/MEDIA_PAUSE.md).
+
 - Control Option Space starts or finishes dictation. The Settings page can change the toggle to Control Option D.
 - With Input Monitoring enabled, hold Fn/globe, Right Option, Right Control, Right Shift, or F6 by itself. Keydown waits briefly to distinguish a hold from a key combination, then records until release or the duration cap. Set the system globe action to Do Nothing to avoid the emoji picker.
 - Escape cancels a live session. Control Option V sends a paste for the most recent result when Keydown can verify the destination.

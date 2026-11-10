@@ -36,6 +36,12 @@ func polishProtocolChecks() async {
 }
 
 func polishTextChecks() {
+    let mediaDefaults = try? JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
+    expect(mediaDefaults?.pauseMedia == true, "media pause defaults on for existing preferences")
+    var mediaDisabled = Preferences(); mediaDisabled.pauseMedia = false
+    let mediaRoundTrip = try? JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(mediaDisabled))
+    expect(mediaRoundTrip?.pauseMedia == false, "media pause opt out survives saving")
+
     var activity = SpeechActivity()
     for i in 0..<100 { _ = activity.observe(rms: 0.0005, uptime: Double(i) * 0.04) }
     expect(activity.lastVoice == nil, "stationary low noise is not speech")

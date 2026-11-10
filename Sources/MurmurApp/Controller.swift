@@ -6,6 +6,8 @@ import MurmurCore
     let indicator = Indicator()
     var sessions = SessionGate()
     let microphone = Microphone()
+    private let pauseMediaRequest: () -> Bool
+    private(set) var mediaPauseStatus = "not_requested"
     let hotkeys = Hotkeys()
     let inserter = ClipboardInserter()
     var destination: Destination?
@@ -71,7 +73,8 @@ import MurmurCore
         if preferences.speechEngine == .bundled { return UnavailableSpeechProvider("Install the bundled decoder and model, or switch to Automatic.") }
         return SystemSpeechProvider()
     }
-    init(ephemeral: Bool = false) {
+    init(ephemeral: Bool = false, pauseMedia: (() -> Bool)? = nil) {
+        pauseMediaRequest = pauseMedia ?? (ephemeral ? { true } : { SystemMediaPause.shared.pause() })
         self.ephemeral = ephemeral
         preferences = ephemeral ? Preferences() : Preferences.load()
         if ephemeral { preferences.holdEnabled = false; preferences.toggleKey = 90 }
@@ -216,51 +219,70 @@ import MurmurCore
         }
         destination = target; indicator.preferredPoint = target.screenPoint; hotkeys.escape(true)
         dictationActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Keydown dictation")
-        do {
-            let maximum = preferences.maximumSeconds
-            guard !ephemeral else { throw MurmurError.unavailable("Fixture microphone is disabled.") }
-            try microphone.start(maximumSeconds: maximum, onReady: { [weak self] in
-                guard let self, self.sessions.transition(.listening, session: identity) else { return }
-                self.trace.record(.firstSample, session: identity)
-                self.announce(command ? "Speak your edit…" : "Listening…")
-            }) { [weak self] in
-                guard let self, self.sessions.id == identity else { return }
-                self.finish()
-            }
-            let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, [.starting, .listening].contains(self.sessions.phase) else { return }
-                    let meter = self.microphone.meter()
-                    let now = ProcessInfo.processInfo.systemUptime
-                    if (!meter.received && now - self.began > 3) || (meter.received && now - meter.lastBuffer > 2) {
-                        self.cancel(message: "Microphone stopped sending audio. Check the input device."); return
-                    }
-                    if self.sessions.phase == .listening && meter.signal != self.lastSignal && !self.commandMode {
-                        self.lastSignal = meter.signal; self.announce(meter.signal.message)
-                    }
-                    if RecordingPolicy.shouldFinish(
-                        duration: ProcessInfo.processInfo.systemUptime - self.began,
-                        silence: ProcessInfo.processInfo.systemUptime - meter.lastVoice,
-                        heardSpeech: meter.lastVoice > 0,
-                        handsFree: self.preferences.handsFree,
-                        silenceLimit: self.preferences.silenceSeconds,
-                        maximum: maximum,
-                        holdToTalk: self.holdSession == self.sessions.id
-                    ) { self.finish() }
+        let pausePlayback = preferences.pauseMedia
+        activeTask = Task {
+            do {
+                guard !Task.isCancelled, sessions.id == identity, sessions.phase == .starting else { return }
+                let maximum = preferences.maximumSeconds
+                guard ephemeral || AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+                    throw MurmurError.unavailable("Enable Keydown microphone access in System Settings.")
                 }
+                mediaPauseStatus = "disabled"
+                if pausePlayback {
+                    let sent = pauseMediaRequest()
+                    mediaPauseStatus = sent ? "requested_unconfirmed" : "unavailable"
+                    // Let the player process its pause before opening an audio device.
+                    try await Task.sleep(nanoseconds: 150_000_000)
+                }
+                guard !Task.isCancelled, sessions.id == identity, sessions.phase == .starting else { return }
+                guard !ephemeral else { throw MurmurError.unavailable("Fixture microphone is disabled.") }
+                try microphone.start(maximumSeconds: maximum, onReady: { [weak self] in
+                    guard let self, self.sessions.transition(.listening, session: identity) else { return }
+                    self.trace.record(.firstSample, session: identity)
+                    self.announce(command ? "Speak your edit…" : "Listening…")
+                }) { [weak self] in
+                    guard let self, self.sessions.id == identity else { return }
+                    self.finish()
+                }
+                let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, [.starting, .listening].contains(self.sessions.phase) else { return }
+                        let meter = self.microphone.meter()
+                        let now = ProcessInfo.processInfo.systemUptime
+                        if (!meter.received && now - self.began > 3) || (meter.received && now - meter.lastBuffer > 2) {
+                            self.cancel(message: "Microphone stopped sending audio. Check the input device."); return
+                        }
+                        if self.sessions.phase == .listening && meter.signal != self.lastSignal && !self.commandMode {
+                            self.lastSignal = meter.signal; self.announce(meter.signal.message)
+                        }
+                        if RecordingPolicy.shouldFinish(
+                            duration: ProcessInfo.processInfo.systemUptime - self.began,
+                            silence: ProcessInfo.processInfo.systemUptime - meter.lastVoice,
+                            heardSpeech: meter.lastVoice > 0,
+                            handsFree: self.preferences.handsFree,
+                            silenceLimit: self.preferences.silenceSeconds,
+                            maximum: maximum,
+                            holdToTalk: self.holdSession == self.sessions.id
+                        ) { self.finish() }
+                    }
+                }
+                self.timer = timer
+                RunLoop.main.add(timer, forMode: .common)
+            } catch {
+                guard !Task.isCancelled, sessions.id == identity else { return }
+                focusContinuity?.stop()
+                endDictationActivity()
+                _ = sessions.transition(.failed, session: identity)
+                announce(error.localizedDescription)
+                hotkeys.escape(false)
             }
-            self.timer = timer
-            RunLoop.main.add(timer, forMode: .common)
-        } catch {
-            focusContinuity?.stop()
-            endDictationActivity()
-            _ = sessions.transition(.failed, session: identity)
-            announce(error.localizedDescription)
-            hotkeys.escape(false)
         }
     }
     func finish() {
         guard !isSuspended, [.starting, .listening].contains(sessions.phase), let identity = sessions.id else { return }
+        if sessions.phase == .starting && !microphone.isCapturing {
+            cancel(message: "Stopped before microphone was ready"); return
+        }
         holdSession = nil
         timer?.invalidate(); timer = nil
         let duration = ProcessInfo.processInfo.systemUptime - began

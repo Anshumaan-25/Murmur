@@ -8,6 +8,7 @@ public struct Preferences: Codable {
     public var speechEngine = SpeechEngine.automatic
     public var preserveCode = true
     public var dictationMode = DictationMode.automatic
+    public var pauseMedia = true
     public var handsFree = false
     public var silenceSeconds = 1.5
     public var maximumSeconds = 120.0
@@ -21,7 +22,7 @@ public struct Preferences: Codable {
     public var customSpeechExecutable = ""
     public var decoderApproval: DecoderApproval?
     public init() {}
-    enum CodingKeys: String, CodingKey { case language, microphone, holdEnabled, holdKey, speechEngine, preserveCode, dictationMode, handsFree, silenceSeconds, maximumSeconds, clipboardDelay, retention, keepAudio, contextEnabled, useModel, toggleKey, customSpeechModel, customSpeechExecutable, decoderApproval }
+    enum CodingKeys: String, CodingKey { case language, microphone, holdEnabled, holdKey, speechEngine, preserveCode, dictationMode, pauseMedia, handsFree, silenceSeconds, maximumSeconds, clipboardDelay, retention, keepAudio, contextEnabled, useModel, toggleKey, customSpeechModel, customSpeechExecutable, decoderApproval }
     public init(from decoder: Decoder) throws {
         self.init()
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -32,6 +33,7 @@ public struct Preferences: Codable {
         speechEngine = (try? values.decodeIfPresent(SpeechEngine.self, forKey: .speechEngine)) ?? speechEngine
         preserveCode = try values.decodeIfPresent(Bool.self, forKey: .preserveCode) ?? preserveCode
         dictationMode = (try? values.decodeIfPresent(DictationMode.self, forKey: .dictationMode)) ?? dictationMode
+        pauseMedia = try values.decodeIfPresent(Bool.self, forKey: .pauseMedia) ?? pauseMedia
         handsFree = try values.decodeIfPresent(Bool.self, forKey: .handsFree) ?? handsFree
         silenceSeconds = try values.decodeIfPresent(Double.self, forKey: .silenceSeconds) ?? silenceSeconds
         maximumSeconds = try values.decodeIfPresent(Double.self, forKey: .maximumSeconds) ?? maximumSeconds

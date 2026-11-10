@@ -12,6 +12,7 @@ import MurmurCore
         result["build"] = BuildInfo.details
         if let controller {
             result["indicator"] = controller.indicator.diagnostic
+            result["media_pause"] = controller.mediaPauseStatus
             if let data = try? JSONEncoder().encode(controller.trace.entries), let events = try? JSONSerialization.jsonObject(with: data) { result["events"] = events }
             result["background"] = [
                 "suspended": controller.isSuspended,
