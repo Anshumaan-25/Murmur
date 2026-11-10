@@ -1,0 +1,17 @@
+# Speech evidence and uncertain results
+
+Keydown analyzes microphone PCM locally in memory with the macOS SoundAnalysis version-1 classifier. The classifier runs independently of recognition: decoder output and volume alone cannot authorize automatic delivery. No additional model is downloaded, audio is not sent to a service, and analysis creates no temporary recording files.
+
+Automatic dictation delivery and selected-text command execution require completed analysis with two adjacent overlapping speech windows at confidence 0.8 or above. Analysis uses 0.5-second windows and 50% overlap. This is a conservative application policy, not a claim that model confidence equals accuracy or that every recognized word is correct. It cannot identify which person spoke, distinguish intentional dictation from audible speech playback, or prove transcript fidelity.
+
+If speech evidence is uncertain, missing, failed, cancelled or overloaded, recognition is still allowed. The raw result opens for review without automatic insertion, cleanup-command interpretation, or selected-text editing. Quiet and short utterances remain available for explicit copy; they are not discarded based on loudness. Practice remains unsaved. History and recording retention follow the existing settings, with recording storage off by default. Pure digital silence can still return the existing empty-audio outcome.
+
+Hands-free timing uses classifier audio timestamps, not a startup volume baseline or elapsed callback time. Speech at the beginning is eligible from the first analysis window. Uncertain sound delays silence completion; only speech-confidence intervals at or below 0.3 count as clear silence (the version-1 digital-silence fixture scores approximately 0.204). Hold-to-talk ignores the hands-free silence rule. Manual stop, cancellation, input-stall checks and the duration cap remain available if classification fails or cannot establish speech. Classifier latency can delay hands-free stopping.
+
+The analysis queue holds at most two seconds of pending PCM. Overflow invalidates its authority instead of silently dropping samples and trusting incomplete evidence. Finalization has a three-second delivery deadline; timeout remains review-only. Cancellation invalidates the session's analyzer, and a new recording uses a new analyzer. The audio engine's generation guard prevents stale tap buffers entering a later session.
+
+## Qualification limits
+
+Synthetic tests cover the historical 60-second noise fixture, changing noise, ordinary and quiet synthesized speech, and speech beginning before any calibration period followed by silence. The standard unit/native suites cover policy, cancellation, buffer limits and recovery UI. Physical microphone, accent, whisper, room-noise, music/voice playback, Bluetooth route and real-time load qualification must still be performed on the user's devices. A general sound classifier can make mistakes; uncertain review is an intentional fallback, not a guarantee against every hallucination.
+
+The independent post-development review reproduced a mixed recording with real synthetic speech followed by a 60-second noise tail. It still qualified because the policy requires speech somewhere in the clip; its decoded noise tail included invented words. This residual needs segment-aware decoding or review for substantial uncertain portions. Do not interpret the present gate as transcript-to-audio alignment or a complete hallucination defense.

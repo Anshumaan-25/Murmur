@@ -203,6 +203,47 @@ import MurmurCore
             results["sleep_during_media_pause_stays_stopped"] = !unavailable.microphone.isCapturing && unavailable.isSuspended
         }
         let links = ["Privacy_Microphone", "Privacy_Accessibility", "Privacy_ListenEvent"]
+        do {
+            var events: [String] = []
+            let controller = DictationController(ephemeral: true, pauseMedia: { events.append("pause"); return true }, captureStart: { events.append("capture") })
+            controller.start(); await Task.yield()
+            results["media_capture_spy_waits_for_settling"] = events == ["pause"]
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            results["media_capture_spy_observes_positive_order"] = events == ["pause", "capture"]
+            controller.cancel(); events = []
+            controller.start(); controller.cancel(); await Task.yield()
+            results["media_capture_spy_immediate_cancel_has_no_effect"] = events.isEmpty
+            controller.start(); await Task.yield(); controller.cancel()
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            results["media_capture_spy_cancel_prevents_attempt"] = events == ["pause"]
+            events = []; controller.hotkeys.hold?(true); await Task.yield(); controller.hotkeys.hold?(false)
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            results["media_capture_spy_release_prevents_attempt"] = events == ["pause"]
+            events = []; controller.start(); await Task.yield(); controller.setSuspended(true)
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            results["media_capture_spy_sleep_prevents_attempt"] = events == ["pause"]
+            controller.setSuspended(false); controller.preferences.pauseMedia = false; events = []
+            controller.start(); await Task.yield()
+            results["media_capture_spy_disabled_pause_still_captures"] = events == ["capture"]
+            controller.cancel(); controller.preferences.pauseMedia = true; events = []
+            controller.start(); await Task.yield(); controller.cancel(); controller.start()
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            results["media_capture_spy_old_session_cannot_capture"] = events == ["pause", "pause", "capture"]
+            controller.cancel(); events = []
+            let denied = DictationController(ephemeral: true, pauseMedia: { events.append("pause"); return true }, captureStart: { events.append("capture") }, captureAuthorized: { false })
+            denied.start(); await Task.yield()
+            results["media_capture_spy_permission_denial_has_no_effect"] = events.isEmpty && denied.sessions.phase == .failed
+            denied.setSuspended(true); controller.setSuspended(true)
+        }
+        do {
+            let controller = DictationController(ephemeral: true)
+            let session = controller.sessions.prepare()
+            _ = controller.sessions.transition(.processing, session: session)
+            var delivered = false; controller.received = { _ in delivered = true }
+            controller.retainUncertain(raw: "Synthetic uncertain instruction", identity: session, application: "fixture", duration: 2, frames: [], practice: false, editing: true)
+            results["uncertain_speech_is_retained_without_automatic_delivery"] = !delivered && controller.lastText == "Synthetic uncertain instruction" && controller.sessions.phase == .idle
+            controller.setSuspended(true)
+        }
         for link in links {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + link) { results["settings_handler_" + link] = NSWorkspace.shared.urlForApplication(toOpen: url) != nil }
         }

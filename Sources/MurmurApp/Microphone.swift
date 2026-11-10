@@ -13,14 +13,14 @@ final class Microphone {
     var isCapturing: Bool { engine?.isRunning == true }
     private var levelValue: Float = 0
     private var audioUptime: Double = 0
-    private var voiceUptime: Double = 0
-    private var activity = SpeechActivity()
+    private var speechMonitor: SoundSpeechMonitor?
     private var peakValue: Float = 0
     private var received = false
-    struct Meter { let rms: Float; let lastVoice: Double; let received: Bool; let lastBuffer: Double; let signal: AudioSignal }
+    struct Meter { let rms: Float; let speechSilence: Double; let heardSpeech: Bool; let received: Bool; let lastBuffer: Double; let signal: AudioSignal }
     func meter() -> Meter {
         lock.lock(); defer { lock.unlock() }
-        return Meter(rms: ProcessInfo.processInfo.systemUptime - audioUptime < 0.18 ? levelValue : 0, lastVoice: voiceUptime, received: received, lastBuffer: audioUptime, signal: AudioSignal.classify(rms: levelValue, peak: peakValue, received: received))
+        let speech = speechMonitor?.snapshot() ?? SpeechEvidence()
+        return Meter(rms: ProcessInfo.processInfo.systemUptime - audioUptime < 0.18 ? levelValue : 0, speechSilence: speech.silence, heardSpeech: speech.heardSpeech, received: received, lastBuffer: audioUptime, signal: AudioSignal.classify(rms: levelValue, peak: peakValue, received: received))
     }
     var inputDevice: AudioDeviceID = 0
     func start(maximumSeconds: Double, onReady: @escaping @MainActor () -> Void = {}, onLimit: @escaping @MainActor () -> Void) throws {
@@ -38,7 +38,7 @@ final class Microphone {
         guard let converter = AVAudioConverter(from: source, to: target) else { throw MurmurError.invalidAudio }
         let generation = UUID()
         let limit = RecordingPolicy.sampleLimit(seconds: maximumSeconds)
-        lock.lock(); samples = []; samples.reserveCapacity(min(limit, 1_920_000)); levelValue = 0; peakValue = 0; received = false; voiceUptime = 0; activity = SpeechActivity(); audioUptime = 0; running = true; self.generation = generation; lock.unlock()
+        lock.lock(); samples = []; samples.reserveCapacity(min(limit, 1_920_000)); levelValue = 0; peakValue = 0; received = false; speechMonitor = SoundSpeechMonitor(); audioUptime = 0; running = true; self.generation = generation; lock.unlock()
         node.installTap(onBus: 0, bufferSize: 2048, format: source) { [weak self] input, _ in
             guard let self else { return }
             guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: AVAudioFrameCount(Double(input.frameLength) * target.sampleRate / source.sampleRate + 128)) else { return }
@@ -51,10 +51,11 @@ final class Microphone {
             let rms = AudioFrame(chunk).rms; let now = ProcessInfo.processInfo.systemUptime
             self.lock.lock()
             if self.running && self.generation == generation {
-                self.samples.append(contentsOf: chunk.prefix(limit - self.samples.count))
+                let captured = Array(chunk.prefix(limit - self.samples.count))
+                self.samples.append(contentsOf: captured)
+                self.speechMonitor?.append(captured)
                 self.levelValue = rms; self.peakValue = chunk.reduce(Float(0)) { max($0, abs($1)) }; self.audioUptime = now
                 if !self.received { self.received = true; DispatchQueue.main.async { onReady() } }
-                if self.activity.observe(rms: rms, uptime: now) { self.voiceUptime = now }
                 if self.samples.count == limit {
                     self.running = false
                     DispatchQueue.main.async { onLimit() }
@@ -93,6 +94,10 @@ final class Microphone {
         return captured
     }
 
-    func stop() -> [AudioFrame] { AudioTools.frames(endCapture()) }
-    func cancel() { _ = endCapture() }
+    func stop() -> (frames: [AudioFrame], speech: SoundSpeechMonitor?) {
+        let frames = AudioTools.frames(endCapture())
+        lock.lock(); let monitor = speechMonitor; speechMonitor = nil; lock.unlock()
+        return (frames, monitor)
+    }
+    func cancel() { let capture = stop(); capture.speech?.cancel() }
 }

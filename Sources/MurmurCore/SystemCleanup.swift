@@ -27,7 +27,7 @@ public enum CleanupFidelity {
     }
 }
 public struct CleanupQualification: Codable, Sendable {
-    public static let revision = "cleanup-6"
+    public static let revision = "cleanup-7"
     public var revision: String
     public var operatingSystem: String
     public var date: Date

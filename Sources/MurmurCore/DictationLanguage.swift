@@ -6,6 +6,22 @@ public enum DictationLanguage {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: insensitive ? [.caseInsensitive] : []) else { return text }
         return regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: template)
     }
+    private static func replaceOperands(_ text: String, pattern: String, template: String, insensitive: Bool = true) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: insensitive ? [.caseInsensitive] : []) else { return text }
+        var output = text
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let range = Range(match.range, in: text) else { continue }
+            // Whitespace may belong to a grouped amount or a spaced identifier.
+            // Refuse an interior match rather than assembling a value never spoken.
+            let before = text[..<range.lowerBound].last(where: { !$0.isWhitespace })
+            let after = text[range.upperBound...].first(where: { !$0.isWhitespace })
+            let connectors = "/\\_+−-–=@#$₹€£%％"
+            if let before, before.isNumber || connectors.contains(before) { continue }
+            if let after, after.isNumber || connectors.contains(after) { continue }
+            output.replaceSubrange(range, with: regex.replacementString(for: match, in: text, offset: 0, template: template))
+        }
+        return output
+    }
     public static func corrections(_ input: String) -> String {
         var text = input
         let cue = #"(?:(?:actually|no|sorry)\s*,?\s+make\s+that)"#
@@ -17,22 +33,24 @@ public enum DictationLanguage {
         let correction = #"[.,]?\s+"# + cue + #"\s+"#
         // A complete pair of time values, including meridiem, survives ASR sentence boundaries.
         let time = #"(1[0-2]|[1-9])[.:]([0-5][0-9])[ \t]*([ap])\.?m"#
-        text = replace(text, pattern: start + time + #"\.?"# + correction + time + end, template: "$4:$5 $6M")
+        text = replaceOperands(text, pattern: start + time + #"\.?"# + correction + time + end, template: "$4:$5 $6M")
         text = replace(text, pattern: #"\b(\d{1,2}:\d{2}) pM\b"#, template: "$1 PM")
         text = replace(text, pattern: #"\b(\d{1,2}:\d{2}) aM\b"#, template: "$1 AM")
-        let names = #"(\b(?i:in|to|from|with)\s+)([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,3})\s*,?\s*(?i:"# + cue + #")\s+([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,3})"#
+        // Conservative title-case names; all-caps ID components are not names.
+        let name = #"[A-Z][\p{Ll}'’]+(?:-[A-Z][\p{Ll}'’]+)?"#
+        let names = start + #"((?i:in|to|from|with)\s+)("# + name + #"(?:\s+"# + name + #"){0,3})\s*,?\s*(?i:"# + cue + #")\s+("# + name + #"(?:\s+"# + name + #"){0,3})"# + end
         text = replace(text, pattern: names, template: "$1$3", insensitive: false)
         let weekday = "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
-        text = replace(text, pattern: "\\b" + weekday + "\\s*,?\\s*" + cue + "\\s+(" + weekday + ")\\b", template: "$1")
+        text = replaceOperands(text, pattern: start + weekday + correction + "(" + weekday + ")" + end, template: "$1")
         let repeatedQuantity = start + #"\d+(?:,\d{3})*[ \t]+([\p{L}]+),[ \t]*sorry,[ \t]*(\d+(?:,\d{3})*[ \t]+\1)"# + end
-        text = replace(text, pattern: repeatedQuantity, template: "$2")
+        text = replaceOperands(text, pattern: repeatedQuantity, template: "$2")
         let scalar = #"[+−-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"#
         // Match the same kind on both sides. Unsupported structured values remain
         // literal, rather than guessing whether a fragment replaces a whole value.
         let operands = [scalar, scalar + "%", #"\d+(?:st|nd|rd|th)"#,
                         #"(?:[01]?\d|2[0-3]):[0-5]\d"#, #"(?:1[0-2]|[1-9])[ \t]+[ap]m"#]
         for operand in operands {
-            text = replace(text, pattern: start + operand + correction + "(" + operand + ")" + end, template: "$1")
+            text = replaceOperands(text, pattern: start + operand + correction + "(" + operand + ")" + end, template: "$1")
         }
 
         return text

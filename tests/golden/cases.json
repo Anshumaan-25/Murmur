@@ -422,5 +422,29 @@
   {
     "input": "The discount is 7.05% actually make that 8.5%.",
     "expected": "The discount is 8.5%."
+  },
+  {
+    "input": "Pay 1 205 actually make that 2 500.",
+    "expected": "Pay 1 205 actually make that 2 500."
+  },
+  {
+    "input": "Pay 1 205 actually make that 2 500.",
+    "expected": "Pay 1 205 actually make that 2 500."
+  },
+  {
+    "input": "Send 1 205 invoices, sorry, 500 invoices.",
+    "expected": "Send 1 205 invoices, sorry, 500 invoices."
+  },
+  {
+    "input": "Reference ABC-Monday actually make that Tuesday.",
+    "expected": "Reference ABC-Monday actually make that Tuesday."
+  },
+  {
+    "input": "Reference Monday/Tuesday actually make that Wednesday.",
+    "expected": "Reference Monday/Tuesday actually make that Wednesday."
+  },
+  {
+    "input": "Work with AB-Jordan actually make that Priya.",
+    "expected": "Work with AB-Jordan actually make that Priya."
   }
 ]

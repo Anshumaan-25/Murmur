@@ -2,6 +2,17 @@ import Foundation
 import MurmurCore
 
 func polishProtocolChecks() async {
+    // Exercise the real local classifier using synthetic PCM, without a microphone.
+    let silentEvidence = await SoundSpeechMonitor.assess(AudioTools.frames(Array(repeating: 0, count: 32_000)))
+    expect(!silentEvidence.heardSpeech && !silentEvidence.allowsAutomaticDelivery, "digital silence cannot authorize delivery through the classifier")
+    let monitor = SoundSpeechMonitor()
+    monitor.append(Array(repeating: 0.01, count: 32_001))
+    let overflowEvidence = await monitor.finish()
+    expect(!overflowEvidence.allowsAutomaticDelivery && !overflowEvidence.heardSpeech, "classifier queue overflow fails closed")
+    let cancelledMonitor = SoundSpeechMonitor(); cancelledMonitor.cancel()
+    cancelledMonitor.append(Array(repeating: 0.1, count: 640))
+    let cancelledEvidence = await cancelledMonitor.finish()
+    expect(!cancelledEvidence.allowsAutomaticDelivery, "cancelled classifier cannot authorize a later session")
     let structured = "Reference 123/456 actually make that 789."
     let optional = await SystemCleanup(budget: 0.01).attempt(structured, context: TextContext())
     expect(optional.text == structured, "optional cleanup provider preserves ambiguous structured correction")
@@ -47,19 +58,35 @@ func polishTextChecks() {
     let mediaRoundTrip = try? JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(mediaDisabled))
     expect(mediaRoundTrip?.pauseMedia == false, "media pause opt out survives saving")
 
-    var activity = SpeechActivity()
-    for i in 0..<100 { _ = activity.observe(rms: 0.0005, uptime: Double(i) * 0.04) }
-    expect(activity.lastVoice == nil, "stationary low noise is not speech")
-    for i in 100..<125 { _ = activity.observe(rms: 0.003, uptime: Double(i) * 0.04) }
-    let lastVoice = activity.lastVoice
-    for i in 125..<225 { _ = activity.observe(rms: 0.0005, uptime: Double(i) * 0.04) }
-    expect(lastVoice != nil && activity.lastVoice == lastVoice, "noise after speech allows silence completion")
-    var loudNoise = SpeechActivity()
-    for i in 0..<100 { _ = loudNoise.observe(rms: 0.02, uptime: Double(i) * 0.04) }
-    expect(loudNoise.lastVoice == nil, "stationary noise present at start establishes a baseline")
-    var quietActivity = SpeechActivity()
-    for i in 0..<20 { _ = quietActivity.observe(rms: 0.0001, uptime: Double(i) * 0.04) }
-    expect(quietActivity.observe(rms: 0.0017, uptime: 1), "quiet speech above baseline counts as activity")
+    var activity = SpeechEvidence()
+    activity.observe(start: 0, end: 0.5, confidence: 0.95)
+    activity.observe(start: 0.25, end: 0.75, confidence: 0.95)
+    expect(activity.heardSpeech, "speech from the first sample does not become a noise baseline")
+    for i in 2...8 { activity.observe(start: Double(i) * 0.25, end: Double(i) * 0.25 + 0.5, confidence: 0.1) }
+    expect(activity.silence >= 1.5, "non-speech after immediate speech advances silence completion")
+    expect(!activity.allowsAutomaticDelivery, "unfinished analysis cannot authorize delivery")
+    activity.complete()
+    expect(activity.allowsAutomaticDelivery, "completed confident speech can authorize delivery")
+    var ambiguousActivity = SpeechEvidence()
+    ambiguousActivity.observe(start: 0, end: 0.5, confidence: 0.95)
+    for i in 1...6 { ambiguousActivity.observe(start: Double(i) * 0.25, end: Double(i) * 0.25 + 0.5, confidence: 0.5) }
+    expect(ambiguousActivity.silence == 0, "uncertain sound is not proof of silence and cannot truncate quiet speech")
+    var classifiedSilence = SpeechEvidence()
+    classifiedSilence.observe(start: 0, end: 0.5, confidence: 0.95)
+    for i in 1...8 { classifiedSilence.observe(start: Double(i) * 0.25, end: Double(i) * 0.25 + 0.5, confidence: 0.205) }
+    expect(classifiedSilence.silence >= 1.5, "measured classifier digital-silence score permits hands-free completion")
+    var noise = SpeechEvidence()
+    for i in 0..<240 { noise.observe(start: Double(i) * 0.25, end: Double(i) * 0.25 + 0.5, confidence: 0.42) }
+    noise.complete()
+    expect(!noise.heardSpeech && !noise.allowsAutomaticDelivery, "noise cannot authorize delivery or reset speech clock")
+    var failedAnalysis = activity; failedAnalysis.fail()
+    expect(!failedAnalysis.allowsAutomaticDelivery && !failedAnalysis.heardSpeech, "analysis failure revokes delivery and hands-free authority")
+    var short = SpeechEvidence(); short.observe(start: 0, end: 0.5, confidence: 0.95); short.complete()
+    expect(!short.allowsAutomaticDelivery, "one isolated positive window remains reviewable")
+    var malformed = SpeechEvidence(); malformed.observe(start: 0, end: 0.5, confidence: .nan); malformed.complete()
+    expect(!malformed.allowsAutomaticDelivery, "invalid confidence fails closed")
+    var gap = SpeechEvidence(); gap.observe(start: 1, end: 1.5, confidence: 0.99); gap.complete()
+    expect(!gap.heardSpeech && !gap.allowsAutomaticDelivery, "missing classifier coverage fails closed")
 
     for input in ["Do not actually make that payment.", "I did not actually make that payment.", "Keep invoice AB-007 actually make that AB-070.", "I am the only one who agrees.", "One Direction performed in New York."] {
         expect(RuleCleanup().apply(input) == input, "adversarial literal preservation: \(input)")
@@ -137,6 +164,23 @@ func polishTextChecks() {
 }
 
 func structuredCorrectionChecks() {
+    for space in [" ", "\u{00A0}", "\u{202F}", "\t"] {
+        for (old, new) in [("1" + space + "205", "2" + space + "500"), ("1205", "2" + space + "500"), ("1" + space + "205", "2500")] {
+            for gap in [" ", ". "] {
+                let input = "Pay \(old)\(gap)actually make that \(new)."
+                expect(DictationLanguage.corrections(input) == input, "spaced amounts never partially rewritten")
+                let output = RuleCleanup().apply(input)
+                expect(output.lowercased().contains("actually make that") && RuleCleanup().apply(output) == output, "ambiguous grouped amount stays visible and stable")
+            }
+        }
+        let repeated = "Send 1\(space)205 invoices, sorry, 500 invoices."
+        expect(DictationLanguage.corrections(repeated) == repeated, "repeated-unit correction consumes complete grouped amount or preserves it")
+    }
+    for input in ["Reference ABC-Monday actually make that Tuesday.", "Reference Monday/Tuesday actually make that Wednesday.", "Meet Monday actually make that Tuesday-01.", "Reference 123 / 456 actually make that 789.", "Reference 123 actually make that 456 / 789.", "Work with AB-Jordan actually make that Priya."] {
+        expect(RuleCleanup().apply(input) == input, "complete nonnumeric/space-separated operands: \(input)")
+    }
+    expect(RuleCleanup().apply("Meet Monday actually make that Tuesday.") == "Meet Tuesday.", "standalone weekday correction remains supported")
+    expect(RuleCleanup().apply("Work with Jordan actually make that Priya.") == "Work with Priya.", "standalone name correction remains supported")
     let preserved = [
         "Reference 123/456 actually make that 789.",
         "Date 12/11/2026 actually make that 2027.",
