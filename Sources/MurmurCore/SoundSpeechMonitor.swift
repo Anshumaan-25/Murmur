@@ -9,6 +9,7 @@ public final class SoundSpeechMonitor: NSObject, SNResultsObserving, @unchecked 
     private let lock = NSLock()
     private var evidence = SpeechEvidence()
     private var pending = 0
+    private var acceptedSamples = 0
     private var ended = false
     private var analyzer: SNAudioStreamAnalyzer?
     private var position: AVAudioFramePosition = 0
@@ -47,6 +48,7 @@ public final class SoundSpeechMonitor: NSObject, SNResultsObserving, @unchecked 
             evidence.fail(); ended = true; lock.unlock(); return
         }
         pending += samples.count
+        acceptedSamples += samples.count
         lock.unlock()
         queue.async {
             defer { self.lock.lock(); self.pending -= samples.count; self.lock.unlock() }
@@ -79,5 +81,9 @@ public final class SoundSpeechMonitor: NSObject, SNResultsObserving, @unchecked 
         lock.unlock()
     }
     public func request(_ request: SNRequest, didFailWithError error: Error) { invalidate() }
-    public func requestDidComplete(_ request: SNRequest) { lock.lock(); evidence.complete(); lock.unlock() }
+    public func requestDidComplete(_ request: SNRequest) {
+        lock.lock()
+        evidence.complete(duration: Double(acceptedSamples) / AudioTools.rate)
+        lock.unlock()
+    }
 }

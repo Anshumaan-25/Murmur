@@ -203,6 +203,21 @@ import MurmurCore
             results["sleep_during_media_pause_stays_stopped"] = !unavailable.microphone.isCapturing && unavailable.isSuspended
         }
         let links = ["Privacy_Microphone", "Privacy_Accessibility", "Privacy_ListenEvent"]
+        for editing in [false, true] {
+            let controller = DictationController(ephemeral: true)
+            let session = controller.sessions.prepare()
+            _ = controller.sessions.transition(.processing, session: session)
+            var evidence = SpeechEvidence()
+            for i in 0..<240 {
+                let start = Double(i) * 0.25
+                evidence.observe(start: start, end: start + 0.5, confidence: i < 20 ? 0.95 : 0.4)
+            }
+            evidence.complete()
+            var delivered = false; controller.received = { _ in delivered = true }
+            let reviewed = controller.reviewIfUncertain(evidence: evidence, raw: "Synthetic mixed audio", identity: session, application: "fixture", duration: 60, frames: [], practice: false, editing: editing)
+            results[editing ? "mixed_audio_edit_is_reviewed_without_interpretation" : "mixed_audio_dictation_is_reviewed_without_delivery"] = reviewed && !delivered && controller.lastText == "Synthetic mixed audio" && controller.sessions.phase == .idle
+            controller.setSuspended(true)
+        }
         do {
             var events: [String] = []
             let controller = DictationController(ephemeral: true, pauseMedia: { events.append("pause"); return true }, captureStart: { events.append("capture") })

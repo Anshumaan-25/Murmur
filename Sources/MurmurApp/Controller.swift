@@ -336,12 +336,7 @@ import MurmurCore
                 trace.record(.decoded, session: identity)
                 recognized = result.text
                 let raw = result.text
-                if !evidence.allowsAutomaticDelivery {
-                    // Do not interpret uncertain audio as an editing command or paste
-                    // invented prose. Keep even quiet/short speech available to review.
-                    retainUncertain(raw: raw, identity: identity, application: app, duration: duration, frames: frames, practice: practice, editing: editing)
-                    return
-                }
+                if reviewIfUncertain(evidence: evidence, raw: raw, identity: identity, application: app, duration: duration, frames: frames, practice: practice, editing: editing) { return }
                 let cleaned: String
                 if editing {
                     let resources = Bundle.main.resourceURL!
@@ -404,6 +399,13 @@ import MurmurCore
                 _ = sessions.transition(.failed, session: identity); announce(message); hotkeys.escape(false)
             }
         }
+    }
+    func reviewIfUncertain(evidence: SpeechEvidence, raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool) -> Bool {
+        guard !evidence.allowsAutomaticDelivery else { return false }
+        // This gate precedes cleanup, edit interpretation and insertion. Review
+        // retains raw text; no cropping or word loss is used to qualify a clip.
+        retainUncertain(raw: raw, identity: identity, application: application, duration: duration, frames: frames, practice: practice, editing: editing)
+        return true
     }
     func retainUncertain(raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool) {
         guard sessions.accepts(identity) else { return }

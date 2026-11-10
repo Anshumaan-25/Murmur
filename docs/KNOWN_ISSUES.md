@@ -14,7 +14,7 @@ Physical qualification remains open: actual microphones, accents and very short/
 
 ## Residuals found by the 0.2.3 post-development review
 
-- **Mixed speech and noise:** two confident windows establish speech somewhere in a recording, not that every decoded word is supported. A synthetic speech clip followed by 60 seconds of noise still qualified and the decoder appended invented prose. Pure-noise sessions are gated, but mixed recordings need segment-aware decoding or mandatory review when substantial uncertain/noise spans remain.
+- **Addressed in 0.2.4 — RF-ADV-01 mixed speech/noise:** prefix, middle and tail coverage now limit automatic delivery. Sessions with an unqualified gap over three seconds or mostly unqualified audio (allowing two seconds of ordinary pauses) require review, including the reproduced 60-second noisy tail. Quiet/raw text stays recoverable. This is not a guarantee of transcript fidelity for short eligible clips or classifier false positives.
 - **Uncommon spaced ID connectors:** `Reference 123 : 456 actually make that 789.` can still become `Reference 123: 789.`; spaced middle-dot and pipe connectors also bypass the finite adjacency guard. Complete structured-span tokenization is needed, including unknown connectors, before automatic correction.
 
-Both residuals were reproduced by the independent reviewer and intentionally left unpatched in this iteration under the requested report-before-further-fixes workflow. They were not introduced by the new gate; the gate does not fully resolve all pre-existing hallucination cases. Prioritize mixed-audio delivery, then category-level structured operand parsing.
+Both residuals were initially reported without immediate fixes. RF-ADV-01 was addressed in the subsequent authorized 0.2.4 iteration. RF-ADV-02 remains open; next implement category-level structured operand parsing. The speech gate does not establish that every recognized word was spoken.

@@ -51,6 +51,7 @@ func polishProtocolChecks() async {
 }
 
 func polishTextChecks() {
+    mixedAudioEvidenceChecks()
     structuredCorrectionChecks()
     let mediaDefaults = try? JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
     expect(mediaDefaults?.pauseMedia == true, "media pause defaults on for existing preferences")
@@ -161,6 +162,46 @@ func polishTextChecks() {
     }
     let dictionary = TextContext(dictionary: ["eBay", "iPhone", "PostgreSQL"])
     expect(RuleCleanup().apply("ebay works with PostgreSQL.", context: dictionary) == "eBay works with PostgreSQL.", "configured spelling survives sentence capitalization")
+}
+
+func mixedAudioEvidenceChecks() {
+    func evidence(_ confidence: [Double]) -> SpeechEvidence {
+        var value = SpeechEvidence()
+        for (index, score) in confidence.enumerated() {
+            let start = Double(index) * 0.25
+            value.observe(start: start, end: start + 0.5, confidence: score)
+        }
+        value.complete()
+        return value
+    }
+    let speech = Array(repeating: 0.95, count: 24)
+    let noise = Array(repeating: 0.4, count: 240)
+    for scores in [speech + noise, noise + speech, speech + noise + speech] {
+        expect(!evidence(scores).allowsAutomaticDelivery, "long mixed audio remains review-only regardless of speech position")
+    }
+    let repeatedBursts = (0..<20).flatMap { _ in [0.95, 0.95] + Array(repeating: 0.4, count: 9) }
+    expect(!evidence(repeatedBursts).allowsAutomaticDelivery, "short positive bursts cannot authorize a mostly uncertain clip")
+    expect(evidence(speech + Array(repeating: 0.2, count: 6)).allowsAutomaticDelivery, "ordinary trailing pause keeps normal speech automatic")
+    expect(evidence(speech + Array(repeating: 0.2, count: 6) + speech).allowsAutomaticDelivery, "ordinary internal pause keeps sustained speech automatic")
+    expect(!evidence(speech + Array(repeating: 0.2, count: 20)).allowsAutomaticDelivery, "long held silent pause needs review too")
+    expect(!evidence(Array(repeating: 0.5, count: 20)).allowsAutomaticDelivery, "quiet uncertain speech is preserved for review")
+    expect(!evidence([0.95]).allowsAutomaticDelivery, "short isolated speech retains conservative review behavior")
+    expect(evidence(speech + Array(repeating: 0.4, count: 12)).allowsAutomaticDelivery, "three-second trailing gap is the documented boundary")
+    expect(!evidence(speech + Array(repeating: 0.4, count: 13)).allowsAutomaticDelivery, "trailing gap beyond the boundary requires review")
+    expect(evidence(Array(repeating: 0.4, count: 12) + speech).allowsAutomaticDelivery, "three-second leading gap is counted once")
+    expect(!evidence(Array(repeating: 0.4, count: 13) + speech).allowsAutomaticDelivery, "leading gap beyond the boundary requires review")
+    expect(!evidence(speech + Array(repeating: 0.4, count: 14) + speech).allowsAutomaticDelivery, "later speech cannot erase a closed internal gap")
+    let overlapping = evidence([0.95, 0.95, 0.95])
+    expect(overlapping.speechSeconds == 1, "overlapping windows count as one second of qualified audio")
+    expect(overlapping.unqualifiedSeconds == 0 && overlapping.longestUnqualifiedSpan == 0, "continuous speech has no unqualified gaps")
+    var missingTail = SpeechEvidence()
+    missingTail.observe(start: 0, end: 0.5, confidence: 0.95)
+    missingTail.observe(start: 0.25, end: 0.75, confidence: 0.95)
+    var partialHop = missingTail
+    partialHop.complete(duration: 0.9)
+    expect(partialHop.allowsAutomaticDelivery && abs(partialHop.unqualifiedSeconds - 0.15) < 0.0001, "small unclassified tail counts as unqualified audio")
+    missingTail.complete(duration: 10)
+    expect(!missingTail.allowsAutomaticDelivery, "missing final classifier coverage fails closed")
 }
 
 func structuredCorrectionChecks() {
