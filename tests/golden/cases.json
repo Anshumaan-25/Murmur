@@ -446,5 +446,29 @@
   {
     "input": "Work with AB-Jordan actually make that Priya.",
     "expected": "Work with AB-Jordan actually make that Priya."
+  },
+  {
+    "input": "Reference 123 : 456 actually make that 789.",
+    "expected": "Reference 123 : 456 actually make that 789."
+  },
+  {
+    "input": "Reference 123 · 456 actually make that 789.",
+    "expected": "Reference 123 · 456 actually make that 789."
+  },
+  {
+    "input": "Reference 123 | 456 actually make that 789.",
+    "expected": "Reference 123 | 456 actually make that 789."
+  },
+  {
+    "input": "Work with Jordan actually make that Priya | 007.",
+    "expected": "Work with Jordan actually make that Priya | 007."
+  },
+  {
+    "input": "Meet Monday actually make that Tuesday : ABC.",
+    "expected": "Meet Monday actually make that Tuesday : ABC."
+  },
+  {
+    "input": "Send 123 : 456 invoices, sorry, 789 invoices.",
+    "expected": "Send 123 : 456 invoices, sorry, 789 invoices."
   }
 ]

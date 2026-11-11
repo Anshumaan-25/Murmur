@@ -17,6 +17,10 @@ func polishProtocolChecks() async {
     let optional = await SystemCleanup(budget: 0.01).attempt(structured, context: TextContext())
     expect(optional.text == structured, "optional cleanup provider preserves ambiguous structured correction")
     expect(!CleanupFidelity.accepts("Reference 123/789.", baseline: structured, dictionary: []), "optional model gate rejects the original composite-ID regression")
+    for raw in ["Reference 123 : 456 actually make that 789.", "Work with Jordan actually make that Priya | 007."] {
+        let result = await SystemCleanup(budget: 0.01).attempt(raw, context: TextContext())
+        expect(result.text == raw, "optional cleanup retains complete connected operands")
+    }
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
@@ -205,6 +209,29 @@ func mixedAudioEvidenceChecks() {
 }
 
 func structuredCorrectionChecks() {
+    for (raw, expected) in [("hello (world)", "Hello (world)."), ("hello: this is ready", "Hello: this is ready."), ("hello — i agree", "Hello — I agree."), ("hello (AB123)", "Hello (AB123)."), ("hello:123", "Hello:123."), ("hello — 123", "Hello — 123."), ("i agree (i think)", "I agree (I think)."), ("hello [world]", "Hello [world]."), ("pay ₹1,205", "Pay ₹1,205."), ("pay $10", "Pay $10."), ("hello + world", "Hello + world."), ("i + me", "I + me."), ("hello / world", "Hello / world.")] {
+        let cleaned = RuleCleanup().apply(raw)
+        expect(cleaned == expected && RuleCleanup().apply(cleaned) == cleaned, "prose formatting is distinct from ID protection: \(raw)")
+    }
+    for mark in [":", "·", "|", "⇄", "⊕", "※", "🧩", "👩🏽‍💻", "\u{200B}", "\u{2060}", "/", "\\", "_", "-", ".", ",", "=", "@"] {
+        for space in [" ", "\u{00A0}", "\u{202F}", "\t"] {
+            for (old, new) in [("123\(space)\(mark)\(space)456", "789"), ("123", "456\(space)\(mark)\(space)789")] {
+                let input = "Reference \(old) actually make that \(new)."
+                expect(DictationLanguage.corrections(input) == input, "connected span refuses partial numeric operand: \(input)")
+                let output = RuleCleanup().apply(input)
+                expect(output.lowercased().contains("actually make that"), "pipeline keeps ambiguous compound correction visible")
+                expect(RuleCleanup().apply(output) == output, "connected spans remain stable after punctuation cleanup")
+            }
+        }
+        for input in ["Meet Monday actually make that Tuesday \(mark) ABC.", "Reference ABC \(mark) Monday actually make that Tuesday.", "Work with Jordan actually make that Priya \(mark) 007.", "Send 123 \(mark) 456 invoices, sorry, 789 invoices.", "Meet at 123 \(mark) 5:15 PM actually make that 5:50 PM."] {
+            expect(DictationLanguage.corrections(input) == input, "all correction branches obey connected-span boundaries: \(input)")
+            let cleaned = RuleCleanup().apply(input)
+            expect(cleaned == input && RuleCleanup().apply(cleaned) == cleaned, "all branches preserve connected spans through formatting")
+        }
+    }
+    for (input, output) in [("Pay -3.25 actually make that +4.75.", "Pay +4.75."), ("The rate is 3% actually make that 4% tomorrow.", "The rate is 4% tomorrow."), ("The value is 3 actually make that 4. Next comes delivery.", "The value is 4. Next comes delivery."), ("Work with Jordan actually make that Priya, and send it.", "Work with Priya, and send it.")] {
+        expect(RuleCleanup().apply(input) == output, "supported prose punctuation and operand decorations: \(input)")
+    }
     for space in [" ", "\u{00A0}", "\u{202F}", "\t"] {
         for (old, new) in [("1" + space + "205", "2" + space + "500"), ("1205", "2" + space + "500"), ("1" + space + "205", "2500")] {
             for gap in [" ", ". "] {

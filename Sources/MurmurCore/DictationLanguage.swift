@@ -9,15 +9,10 @@ public enum DictationLanguage {
     private static func replaceOperands(_ text: String, pattern: String, template: String, insensitive: Bool = true) -> String {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: insensitive ? [.caseInsensitive] : []) else { return text }
         var output = text
+        let spans = CorrectionSpans(text)
         for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
             guard let range = Range(match.range, in: text) else { continue }
-            // Whitespace may belong to a grouped amount or a spaced identifier.
-            // Refuse an interior match rather than assembling a value never spoken.
-            let before = text[..<range.lowerBound].last(where: { !$0.isWhitespace })
-            let after = text[range.upperBound...].first(where: { !$0.isWhitespace })
-            let connectors = "/\\_+−-–=@#$₹€£%％"
-            if let before, before.isNumber || connectors.contains(before) { continue }
-            if let after, after.isNumber || connectors.contains(after) { continue }
+            guard spans.containsWhole(match.range) else { continue }
             output.replaceSubrange(range, with: regex.replacementString(for: match, in: text, offset: 0, template: template))
         }
         return output
@@ -39,7 +34,7 @@ public enum DictationLanguage {
         // Conservative title-case names; all-caps ID components are not names.
         let name = #"[A-Z][\p{Ll}'’]+(?:-[A-Z][\p{Ll}'’]+)?"#
         let names = start + #"((?i:in|to|from|with)\s+)("# + name + #"(?:\s+"# + name + #"){0,3})\s*,?\s*(?i:"# + cue + #")\s+("# + name + #"(?:\s+"# + name + #"){0,3})"# + end
-        text = replace(text, pattern: names, template: "$1$3", insensitive: false)
+        text = replaceOperands(text, pattern: names, template: "$1$3", insensitive: false)
         let weekday = "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
         text = replaceOperands(text, pattern: start + weekday + correction + "(" + weekday + ")" + end, template: "$1")
         let repeatedQuantity = start + #"\d+(?:,\d{3})*[ \t]+([\p{L}]+),[ \t]*sorry,[ \t]*(\d+(?:,\d{3})*[ \t]+\1)"# + end

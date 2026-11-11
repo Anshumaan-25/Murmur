@@ -62,6 +62,13 @@ import MurmurCore
             results["native_unicode_paste"] = text.string == "Hello, 世界 👋"
             results["restored_text"] = board.string(forType: .string) == "Saved fixture"
             results["restored_binary"] = board.pasteboardItems?.first?.data(forType: custom) == Data([0, 1, 128, 255])
+            let structured = "Reference 123 : 456 actually make that 789."
+            text.setSelectedRange(NSRange(location: 0, length: (text.string as NSString).length))
+            try await delivery.deliver(RuleCleanup().apply(structured), board: board, delay: 0.02) {
+                _ = text.readSelection(from: board, type: .string)
+            }
+            results["native_structured_correction_stays_literal"] = text.string == structured
+            results["native_structured_delivery_restores_clipboard"] = board.string(forType: .string) == "Saved fixture" && board.pasteboardItems?.first?.data(forType: custom) == Data([0, 1, 128, 255])
             try await delivery.deliver("Transient", board: board, delay: 0.02) { board.clearContents(); board.setString("A newer copy", forType: .string) }
             results["new_owner_preserved"] = board.string(forType: .string) == "A newer copy"
             do { try await delivery.deliver("Failure fixture", board: board, delay: 0.02) { throw MurmurError.empty }; results["failure_recovery"] = false }

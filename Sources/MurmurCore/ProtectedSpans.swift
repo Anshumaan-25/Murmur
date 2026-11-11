@@ -15,10 +15,18 @@ struct ProtectedSpans {
         return replace(text, pattern: "\\b(?:" + terms.joined(separator: "|") + ")\\b")
     }
     mutating func maskStructured(_ text: String) -> String {
+        var text = text
+        for span in CorrectionSpans(text).literalRanges.reversed() {
+            guard let range = Range(span, in: text) else { continue }
+            let value = String(text[range])
+            if value.contains(prefix) { continue }
+            let marker = prefix + String(values.count) + "_"
+            values.append((marker, value)); text.replaceSubrange(range, with: marker)
+        }
         // Numeric compounds may contain letter components too (4:AB, 123/XYZ).
         // Inserting punctuation spaces could turn one operand into separate words
         // and make an ambiguous correction look valid on a subsequent cleanup.
-        replace(text, pattern: #"\b(?:[ap]\.)m\.|(?<![\p{L}\p{N}_])[+−-]?\d+(?:[.,:/-][\p{L}\p{N}_]+)+(?:%|\b)|\b[\p{L}]+[\p{N}]+(?:[-_.][\p{L}\p{N}]+)*\b|\b[\p{L}]+[-_][\p{L}\p{N}_-]+\b"#)
+        return replace(text, pattern: #"\b(?:[ap]\.)m\.|(?<![\p{L}\p{N}_])[+−-]?\d+(?:[.,:/-][\p{L}\p{N}_]+)+(?:%|\b)|\b[\p{L}]+[\p{N}]+(?:[-_.][\p{L}\p{N}]+)*\b|\b[\p{L}]+[-_][\p{L}\p{N}_-]+\b"#)
     }
     private mutating func replace(_ text: String, pattern: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
