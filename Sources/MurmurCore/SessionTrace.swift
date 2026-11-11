@@ -1,7 +1,7 @@
 import Foundation
 
 public struct SessionTrace {
-    public enum Event: String, Codable { case starting, firstSample, drawDispatched, processing, decoded, cleaned, queued, available, cancelled, suspended, resumed, busy, failed }
+    public enum Event: String, Codable { case starting, firstSample, drawDispatched, processing, decoded, speechUncertain, cleaned, queued, available, cancelled, suspended, resumed, busy, failed }
     public struct Entry: Codable { public let event: Event; public let uptime: Double; public let session: UUID? }
     public private(set) var entries: [Entry] = []
     public init() {}

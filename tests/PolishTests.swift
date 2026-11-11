@@ -193,6 +193,19 @@ func mixedAudioEvidenceChecks() {
     for scores in [speech + noise, noise + speech, speech + noise + speech] {
         expect(!evidence(scores).allowsAutomaticDelivery, "long mixed audio remains review-only regardless of speech position")
     }
+    let softerSpeech = [0.83, 0.76, 0.77, 0.79, 0.78, 0.78]
+    expect(!evidence(softerSpeech).allowsAutomaticDelivery && evidence(softerSpeech).allowsHeldDictationDelivery,
+           "deliberate hold accepts supported soft speech without relaxing toggle dictation")
+    expect(!evidence(Array(repeating: 0.77, count: 12)).allowsHeldDictationDelivery,
+           "moderate confidence alone cannot authorize held dictation")
+    expect(!evidence([0.83, 0.4, 0.78, 0.76]).allowsHeldDictationDelivery,
+           "strong and moderate speech must share an adjacent pair")
+    for scores in [noise, softerSpeech + noise, noise + softerSpeech, softerSpeech + noise + softerSpeech] {
+        expect(!evidence(scores).allowsHeldDictationDelivery, "noise and long mixed audio still require review for held dictation")
+    }
+    expect(!evidence([0.99]).allowsHeldDictationDelivery, "an isolated positive window still requires review")
+    var failedHeld = evidence(softerSpeech); failedHeld.fail()
+    expect(!failedHeld.allowsHeldDictationDelivery, "failed analysis cannot authorize held dictation")
     let repeatedBursts = (0..<20).flatMap { _ in [0.95, 0.95] + Array(repeating: 0.4, count: 9) }
     expect(!evidence(repeatedBursts).allowsAutomaticDelivery, "short positive bursts cannot authorize a mostly uncertain clip")
     expect(evidence(speech + Array(repeating: 0.2, count: 6)).allowsAutomaticDelivery, "ordinary trailing pause keeps normal speech automatic")

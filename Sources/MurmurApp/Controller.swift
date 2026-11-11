@@ -357,6 +357,7 @@ import MurmurCore
             cancel(message: "Stopped before microphone was ready"); return
         }
         indicator.hide()
+        let held = holdSession == identity
         holdSession = nil
         timer?.invalidate(); timer = nil
         let duration = ProcessInfo.processInfo.systemUptime - began
@@ -398,7 +399,7 @@ import MurmurCore
                 trace.record(.decoded, session: identity)
                 recognized = result.text
                 let raw = result.text
-                if reviewIfUncertain(evidence: evidence, raw: raw, identity: identity, application: app, duration: duration, frames: frames, practice: practice, editing: editing) { return }
+                if reviewIfUncertain(evidence: evidence, raw: raw, identity: identity, application: app, duration: duration, frames: frames, practice: practice, editing: editing, held: held) { return }
                 let cleaned: String
                 if editing {
                     let resources = Bundle.main.resourceURL!
@@ -460,8 +461,9 @@ import MurmurCore
             }
         }
     }
-    func reviewIfUncertain(evidence: SpeechEvidence, raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool) -> Bool {
-        guard !evidence.allowsAutomaticDelivery else { return false }
+    func reviewIfUncertain(evidence: SpeechEvidence, raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool, held: Bool = false) -> Bool {
+        let eligible = held && !editing ? evidence.allowsHeldDictationDelivery : evidence.allowsAutomaticDelivery
+        guard !eligible else { return false }
         // This gate precedes cleanup, edit interpretation and insertion. Review
         // retains raw text; no cropping or word loss is used to qualify a clip.
         retainUncertain(raw: raw, identity: identity, application: application, duration: duration, frames: frames, practice: practice, editing: editing)
@@ -469,6 +471,7 @@ import MurmurCore
     }
     func retainUncertain(raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool) {
         guard sessions.accepts(identity) else { return }
+        trace.record(.speechUncertain, session: identity)
         var message = editing ? "Speech uncertain · edit not applied · review recognized instruction" : "Speech uncertain · review before copying"
         _ = sessions.transition(.inserting, session: identity)
         _ = sessions.transition(.idle, session: identity)

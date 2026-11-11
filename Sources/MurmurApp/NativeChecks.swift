@@ -227,6 +227,28 @@ import MurmurCore
             controller.setSuspended(true)
         }
         do {
+            var evidence = SpeechEvidence()
+            for (index, confidence) in [0.83, 0.76, 0.78, 0.79].enumerated() {
+                let start = Double(index) * 0.25
+                evidence.observe(start: start, end: start + 0.5, confidence: confidence)
+            }
+            evidence.complete()
+            for (held, editing, review, key) in [
+                (true, false, false, "held_soft_speech_can_reach_insertion"),
+                (false, false, true, "toggle_soft_speech_still_requires_review"),
+                (true, true, true, "held_soft_edit_still_requires_review"),
+            ] {
+                let controller = DictationController(ephemeral: true)
+                let session = controller.sessions.prepare()
+                _ = controller.sessions.transition(.processing, session: session)
+                let requiresReview = controller.reviewIfUncertain(evidence: evidence, raw: "Synthetic soft speech",
+                    identity: session, application: "fixture", duration: 1.25, frames: [],
+                    practice: false, editing: editing, held: held)
+                results[key] = requiresReview == review && controller.sessions.phase == (review ? .idle : .processing)
+                controller.setSuspended(true)
+            }
+        }
+        do {
             var events: [String] = []
             let controller = DictationController(ephemeral: true, pauseMedia: { events.append("pause"); return true }, captureStart: { events.append("capture") })
             controller.start(); await Task.yield()
