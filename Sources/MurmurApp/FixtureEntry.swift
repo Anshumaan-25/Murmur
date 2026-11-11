@@ -10,6 +10,13 @@ import MurmurCore
     static func run() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         let app = NSApplication.shared
+        if ["--workspace-preview", "--quit-fixture", "--launch-probe"].contains(arguments.first ?? "") {
+            let fixture = WorkspaceFixture(arguments: arguments)
+            app.delegate = fixture
+            app.run()
+            withExtendedLifetime(fixture) {}
+            return
+        }
         app.setActivationPolicy(.accessory)
         Task {
             let result: [String: Any]

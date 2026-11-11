@@ -1,6 +1,11 @@
 import Foundation
 
+public enum AppAppearance: String, Codable, CaseIterable {
+    case system, light, dark
+}
+
 public struct Preferences: Codable {
+    public var appearance = AppAppearance.system
     public var language = "en-US"
     public var microphone: UInt32 = 0
     public var holdEnabled = true
@@ -22,10 +27,11 @@ public struct Preferences: Codable {
     public var customSpeechExecutable = ""
     public var decoderApproval: DecoderApproval?
     public init() {}
-    enum CodingKeys: String, CodingKey { case language, microphone, holdEnabled, holdKey, speechEngine, preserveCode, dictationMode, pauseMedia, handsFree, silenceSeconds, maximumSeconds, clipboardDelay, retention, keepAudio, contextEnabled, useModel, toggleKey, customSpeechModel, customSpeechExecutable, decoderApproval }
+    enum CodingKeys: String, CodingKey { case appearance, language, microphone, holdEnabled, holdKey, speechEngine, preserveCode, dictationMode, pauseMedia, handsFree, silenceSeconds, maximumSeconds, clipboardDelay, retention, keepAudio, contextEnabled, useModel, toggleKey, customSpeechModel, customSpeechExecutable, decoderApproval }
     public init(from decoder: Decoder) throws {
         self.init()
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        appearance = (try? values.decodeIfPresent(AppAppearance.self, forKey: .appearance)) ?? appearance
         language = try values.decodeIfPresent(String.self, forKey: .language) ?? language
         microphone = try values.decodeIfPresent(UInt32.self, forKey: .microphone) ?? microphone
         holdEnabled = try values.decodeIfPresent(Bool.self, forKey: .holdEnabled) ?? holdEnabled

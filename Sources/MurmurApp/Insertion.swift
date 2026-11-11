@@ -72,7 +72,11 @@ struct Destination {
 @MainActor final class ClipboardInserter {
     enum Outcome: String { case queued, available }
     private struct DeliveryBlocked: Error {}
-    private let clipboard = ClipboardDelivery()
+    private let clipboard: ClipboardDelivery
+
+    init(clipboard: ClipboardDelivery? = nil) {
+        self.clipboard = clipboard ?? ClipboardDelivery()
+    }
     private(set) var lastReason = DeliveryReason.ready
     private(set) var lastAttempt: [String:Any] = [:]
 

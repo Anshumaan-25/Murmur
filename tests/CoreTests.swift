@@ -237,7 +237,13 @@ do {
     let loaded = try JSONDecoder().decode(Preferences.self, from: oldSettings)
     expect(loaded.language == "en-GB" && loaded.clipboardDelay == 0.7 && !loaded.holdEnabled, "old settings preserved during migration")
     expect(loaded.holdKey == .globe && loaded.speechEngine == .automatic && loaded.preserveCode, "new preferences default safely")
-    let invalid = try JSONDecoder().decode(Preferences.self, from: Data(#"{"language":"en-IN","holdKey":"futureKey","maximumSeconds":-1}"#.utf8))
+    expect(loaded.appearance == .system, "older preferences follow system appearance")
+    var dark = loaded
+    dark.appearance = .dark
+    let roundTrip = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(dark))
+    expect(roundTrip.appearance == .dark && roundTrip.language == loaded.language, "appearance override round-trips with existing settings")
+    let invalid = try JSONDecoder().decode(Preferences.self, from: Data(#"{"language":"en-IN","holdKey":"futureKey","maximumSeconds":-1,"appearance":"futureTheme"}"#.utf8))
+    expect(invalid.appearance == .system, "unknown appearance falls back to system")
     expect(invalid.language == "en-IN" && invalid.holdKey == .globe && invalid.maximumSeconds == 5, "unknown key does not reset other preferences")
 } catch { expect(false, "preference migration decodes") }
 expect(ApplicationCategory.classify(bundle: "com.apple.Terminal") == .terminal, "terminal category")

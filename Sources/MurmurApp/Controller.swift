@@ -3,15 +3,20 @@ import AVFoundation
 import MurmurCore
 
 @MainActor final class DictationController {
-    let indicator = Indicator()
+    let indicator: Indicator
+    lazy var presentation = AppPresentation(onFailure: { [weak self] in
+        self?.status?("macOS could not update Keydown’s Dock presence.")
+    })
     var sessions = SessionGate()
     let microphone = Microphone()
     private let pauseMediaRequest: () -> Bool
     private let captureStartOverride: (() throws -> Void)?
+    private let fixtureRetentionCleanup: (() throws -> Void)?
     private let captureAuthorized: () -> Bool
+    private let appIsActive: () -> Bool
     private(set) var mediaPauseStatus = "not_requested"
-    let hotkeys = Hotkeys()
-    let inserter = ClipboardInserter()
+    let hotkeys: Hotkeys
+    let inserter: ClipboardInserter
     var destination: Destination?
     var focusContinuity: FocusContinuity?
     var preferences: Preferences
@@ -35,7 +40,7 @@ import MurmurCore
     private var reviewWindow: ResultReviewController?
     private var reviewedHistoryID: UUID?
     private var suggestionWindow: ResultReviewController?
-    private let ephemeral: Bool
+    let ephemeral: Bool
     private var practiceWindow: ResultReviewController?
     private var practicing = false
     private var lastHistoryID: UUID?
@@ -75,7 +80,13 @@ import MurmurCore
         if preferences.speechEngine == .bundled { return UnavailableSpeechProvider("Install the bundled decoder and model, or switch to Automatic.") }
         return SystemSpeechProvider()
     }
-    init(ephemeral: Bool = false, pauseMedia: (() -> Bool)? = nil, captureStart: (() throws -> Void)? = nil, captureAuthorized: (() -> Bool)? = nil) {
+    init(ephemeral: Bool = false, pauseMedia: (() -> Bool)? = nil, captureStart: (() throws -> Void)? = nil, captureAuthorized: (() -> Bool)? = nil, clipboard: ClipboardDelivery? = nil, retentionCleanup: (() throws -> Void)? = nil,
+         appIsActive: (() -> Bool)? = nil) {
+        self.appIsActive = (ephemeral ? appIsActive : nil) ?? { NSApp.isActive }
+        fixtureRetentionCleanup = ephemeral ? retentionCleanup : nil
+        hotkeys = Hotkeys(suspended: ephemeral)
+        inserter = ClipboardInserter(clipboard: ephemeral ? clipboard : nil)
+        indicator = Indicator(defaults: ephemeral ? nil : .standard)
         pauseMediaRequest = pauseMedia ?? (ephemeral ? { true } : { SystemMediaPause.shared.pause() })
         captureStartOverride = ephemeral ? captureStart : nil
         self.captureAuthorized = ephemeral ? (captureAuthorized ?? { true }) : { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
@@ -152,18 +163,51 @@ import MurmurCore
         received?("")
     }
 
-    @discardableResult func applyPreferences() -> Bool {
+    func savePreferences(_ proposed: Preferences) throws -> String? {
+        if !ephemeral { try proposed.save() }
+        preferences = proposed
+        applyPreferences()
+        do {
+            if ephemeral {
+                try fixtureRetentionCleanup?()
+            } else {
+                UserDefaults.standard.set(proposed.holdEnabled, forKey: "holdEnabled")
+                try pruneHistory()
+            }
+            return nil
+        } catch {
+            return "Settings saved, but some local history or recordings could not be removed."
+        }
+    }
+
+    private func applyPreferences() {
+        if !ephemeral {
+            switch preferences.appearance {
+            case .system: NSApp.appearance = nil
+            case .light: NSApp.appearance = NSAppearance(named: .aqua)
+            case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+            }
+        }
         microphone.inputDevice = preferences.microphone
         hotkeys.enableHold(preferences.holdEnabled, key: preferences.holdKey)
         hotkeys.configure(keyCode: preferences.toggleKey)
-        if ephemeral { return true }
-        UserDefaults.standard.set(preferences.holdEnabled, forKey: "holdEnabled")
-        do { try preferences.save() }
-        catch { announce("Could not save local preferences."); return false }
-        do { try pruneHistory() }
-        catch { announce("Settings saved, but some local history or recordings could not be removed."); return false }
-        return true
     }
+
+    private(set) var preparingToQuit = false
+    var hasLocalDialog: Bool {
+        NSApp.modalWindow != nil || NSApp.windows.contains { $0.attachedSheet != nil }
+    }
+
+    private var hasFocusedLocalDialog: Bool { appIsActive() && hasLocalDialog }
+
+    func beginQuit() {
+        preparingToQuit = true
+        stopWork()
+        indicator.hide()
+        phaseChanged?(.idle)
+    }
+
+    func cancelQuit() { preparingToQuit = false }
 
     private func persist(_ record: Utterance, frames: [AudioFrame], previous: Bool) throws {
         guard preferences.retention != .never else { return }
@@ -174,7 +218,7 @@ import MurmurCore
     }
 
     func validateCleanup() {
-        guard !isSuspended else { return }
+        guard !isSuspended, !preparingToQuit, !hasLocalDialog else { return }
         guard validationTask == nil, ![CapturePhase.starting, .listening, .processing, .inserting].contains(sessions.phase) else { announce("Finish the current task before validation."); return }
         status?("Checking on-device cleanup against the text suite…"); hotkeys.escape(true)
         validationTask = Task {
@@ -192,7 +236,7 @@ import MurmurCore
     func toggle(triggerUptime: Double? = nil) { intent = UUID(); if [.starting, .listening].contains(sessions.phase) { finish() } else { start(triggerUptime: triggerUptime) } }
     func start(command: Bool = false, triggerUptime: Double? = nil, expectedPID: pid_t? = nil) {
         intent = UUID()
-        guard !isSuspended else { return }
+        guard !isSuspended, !preparingToQuit, !hasFocusedLocalDialog else { return }
         guard validationTask == nil else { announce("Cleanup validation is running. Escape cancels it."); return }
         guard sessions.canStart else { trace.record(.busy, session: sessions.id); announce("Finish this dictation first · Esc cancels it"); return }
         let triggered = triggerUptime ?? ProcessInfo.processInfo.systemUptime
@@ -430,7 +474,7 @@ import MurmurCore
     }
     func pasteLast() {
         intent = UUID()
-        guard !isSuspended, !lastText.isEmpty, sessions.canStart else { return }
+        guard !isSuspended, !preparingToQuit, !hasFocusedLocalDialog, !lastText.isEmpty, sessions.canStart else { return }
         activeTask?.cancel()
         focusContinuity?.stop()
         inserter.finishRestoration()
@@ -457,23 +501,24 @@ import MurmurCore
     }
 
     func reviewLast() {
-        guard !lastText.isEmpty, !isSuspended else { return }
-        if reviewWindow == nil { reviewWindow = makeReviewWindow(practice: false) }
+        guard !lastText.isEmpty, !isSuspended, !preparingToQuit, !hasLocalDialog else { return }
+        if reviewWindow == nil { reviewWindow = makeReviewWindow(role: .historyReview) }
         reviewedHistoryID = lastHistoryID
         reviewWindow?.update(raw: lastRaw, cleaned: lastText, outcome: lastOutcome)
         reviewWindow?.present()
     }
     func reviewRecord(_ record: Utterance) {
-        guard !isSuspended else { return }
-        if reviewWindow == nil { reviewWindow = makeReviewWindow(practice: false) }
+        guard !isSuspended, !preparingToQuit, !hasLocalDialog else { return }
+        if reviewWindow == nil { reviewWindow = makeReviewWindow(role: .historyReview) }
         reviewedHistoryID = record.id
         reviewWindow?.update(raw: record.raw, cleaned: record.cleaned, outcome: record.outcome)
         reviewWindow?.present()
     }
     func showPractice() {
-        guard !isSuspended, sessions.canStart else { announce("Finish this dictation before opening practice"); return }
+        guard !isSuspended, !preparingToQuit, !hasLocalDialog else { return }
+        guard sessions.canStart else { announce("Finish this dictation before opening practice"); return }
         if practiceWindow == nil {
-            practiceWindow = makeReviewWindow(practice: true)
+            practiceWindow = makeReviewWindow(role: .practice)
             practiceWindow?.practiceAction = { [weak self] in self?.toggle() }
             practiceWindow?.closed = { [weak self] in
                 guard let self, self.practicing else { return }; self.cancel(message: "Practice cancelled")
@@ -481,8 +526,8 @@ import MurmurCore
         }
         practiceWindow?.present()
     }
-    private func makeReviewWindow(practice: Bool) -> ResultReviewController {
-        let view = ResultReviewController(practice: practice)
+    private func makeReviewWindow(role: WorkspaceRole) -> ResultReviewController {
+        let view = ResultReviewController(role: role, presentation: presentation, geometryDefaults: ephemeral ? nil : .standard)
         view.learnTerm = { [weak self] term in
             guard let history = self?.history else { throw MurmurError.unavailable("Vocabulary storage is unavailable.") }
             var terms = try history.dictionary(); terms.append(term); try history.setDictionary(terms)
@@ -491,15 +536,16 @@ import MurmurCore
     }
 
     func reviewSuggestedEdit() {
-        guard !isSuspended, let suggestion = suggestedEdit else { announce("No suggested edit is waiting."); return }
-        if suggestionWindow == nil { suggestionWindow = makeReviewWindow(practice: false) }
+        guard !isSuspended, !preparingToQuit, !hasLocalDialog else { return }
+        guard let suggestion = suggestedEdit else { announce("No suggested edit is waiting."); return }
+        if suggestionWindow == nil { suggestionWindow = makeReviewWindow(role: .suggestionReview) }
         suggestionWindow?.update(raw: suggestion.original, cleaned: suggestion.text, outcome: "Suggested edit · review wording and facts before copying")
         suggestionWindow?.present()
     }
 
     func copyLast() {
         intent = UUID()
-        guard !isSuspended, !lastText.isEmpty else { return }
+        guard !isSuspended, !preparingToQuit, !hasLocalDialog, !lastText.isEmpty else { return }
         inserter.finishRestoration()
         NSPasteboard.general.clearContents()
         if NSPasteboard.general.setString(lastText, forType: .string) { announce("Copied previous text") }
@@ -519,7 +565,7 @@ import MurmurCore
             sessions.reset()
             trace.record(.resumed, session: nil)
             indicator.hide(); indicator.preferredPoint = nil
-            hotkeys.resume()
+            if !ephemeral { hotkeys.resume() }
             status?("Ready · \(shortcutTitle)")
             runRetention()
         }

@@ -53,12 +53,19 @@ public enum LocalProcess {
     private static let worker = DispatchQueue(label: "local.murmur.decoder", qos: .userInitiated, attributes: .concurrent)
     private static let decoderSlot = DispatchSemaphore(value: 1)
     private static let outputLimit = 1024 * 1024
+    private static let runLock = NSLock()
+    private static var running = 0
+
+    public static var hasPendingWork: Bool { runLock.withLock { running > 0 } }
 
     public static func run(executable: URL, arguments: [String], input: Data, timeout: TimeInterval, approval: DecoderApproval? = nil) async throws -> String {
         guard timeout.isFinite, timeout > 0, input.count <= 32 * 1024 * 1024,
               !([executable.path] + arguments).contains(where: { $0.utf8.contains(0) }) else {
             throw MurmurError.unavailable("Invalid local decoder input or deadline.")
         }
+        try Task.checkCancellation()
+        runLock.withLock { running += 1 }
+        defer { runLock.withLock { running -= 1 } }
         let cancellation = ProcessCancellation()
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         let result: String = try await withTaskCancellationHandler(operation: {
@@ -129,7 +136,9 @@ public enum LocalProcess {
                 var status: Int32 = 0
                 if waitpid(pid, &status, WNOHANG) == 0 {
                     let child = pid
+                    runLock.withLock { running += 1 }
                     DispatchQueue.global(qos: .utility).async {
+                        defer { runLock.withLock { running -= 1 } }
                         var status: Int32 = 0
                         while waitpid(child, &status, 0) == -1 && errno == EINTR {}
                     }

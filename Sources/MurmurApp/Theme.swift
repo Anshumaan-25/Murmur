@@ -2,14 +2,24 @@ import AppKit
 import QuartzCore
 
 enum Palette {
-    static let background = NSColor(srgbRed: 0.045, green: 0.052, blue: 0.085, alpha: 1)
-    static let surface = NSColor(srgbRed: 0.077, green: 0.087, blue: 0.13, alpha: 1)
-    static let raised = NSColor(srgbRed: 0.11, green: 0.12, blue: 0.18, alpha: 1)
-    static let text = NSColor(srgbRed: 0.93, green: 0.94, blue: 0.98, alpha: 1)
-    static let muted = NSColor(srgbRed: 0.58, green: 0.62, blue: 0.73, alpha: 1)
-    static let violet = NSColor(srgbRed: 0.66, green: 0.58, blue: 1, alpha: 1)
-    static let mint = NSColor(srgbRed: 0.48, green: 0.91, blue: 0.78, alpha: 1)
-    static let line = NSColor.white.withAlphaComponent(0.075)
+    private static func adaptive(_ light: NSColor, _ dark: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        }
+    }
+
+    private static func rgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> NSColor {
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: 1)
+    }
+
+    static let background = adaptive(rgb(0.94, 0.95, 0.98), rgb(0.045, 0.052, 0.085))
+    static let surface = adaptive(rgb(0.99, 0.99, 1), rgb(0.077, 0.087, 0.13))
+    static let raised = adaptive(rgb(0.89, 0.91, 0.96), rgb(0.11, 0.12, 0.18))
+    static let text = NSColor.labelColor
+    static let muted = NSColor.secondaryLabelColor
+    static let violet = adaptive(rgb(0.33, 0.21, 0.74), rgb(0.66, 0.58, 1))
+    static let mint = adaptive(rgb(0.04, 0.36, 0.29), rgb(0.48, 0.91, 0.78))
+    static let line = adaptive(NSColor.black.withAlphaComponent(0.16), NSColor.white.withAlphaComponent(0.12))
     static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     static func symbol(_ name: String, size: CGFloat, color: NSColor) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: size, weight: .medium))?.tinted(color)
@@ -66,27 +76,71 @@ final class WaveArtwork: NSView {
     }
 }
 final class SidebarButton: NSButton {
-    var chosen = false { didSet { needsDisplay = true } }
+    var chosen = false {
+        didSet {
+            state = chosen ? .on : .off
+            if chosen != oldValue { NSAccessibility.post(element: self, notification: .valueChanged) }
+            needsDisplay = true
+        }
+    }
+    var moveSelection: ((Int) -> Void)?
     var icon = "waveform"
     var perform: (() -> Void)?
     private var hovered = false
     private var tracking: NSTrackingArea?
     init(_ title: String, icon: String, action: @escaping () -> Void) {
         super.init(frame: .zero); self.title = title; self.icon = icon; perform = action
-        target = self; self.action = #selector(invoke); isBordered = false; setAccessibilityLabel(title)
+        target = self; self.action = #selector(invoke); isBordered = false
+        setButtonType(.radio)
+        setAccessibilityLabel(title)
     }
     required init?(coder: NSCoder) { fatalError("Unsupported initializer") }
-    override var intrinsicContentSize: NSSize { NSSize(width: 170, height: 44) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 152, height: 44) }
     override func updateTrackingAreas() { super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }; tracking = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self); addTrackingArea(tracking!) }
     override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
-        (chosen ? Palette.violet.withAlphaComponent(0.14) : NSColor.white.withAlphaComponent(hovered ? 0.045 : 0)).setFill()
+        (chosen ? Palette.violet.withAlphaComponent(0.14) : Palette.text.withAlphaComponent(hovered ? 0.045 : 0)).setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 1), xRadius: 10, yRadius: 10).fill()
         if chosen { Palette.violet.setFill(); NSBezierPath(roundedRect: NSRect(x: 0, y: 13, width: 3, height: 18), xRadius: 1.5, yRadius: 1.5).fill() }
+        if window?.firstResponder === self {
+            NSColor.keyboardFocusIndicatorColor.setStroke()
+            let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 8, yRadius: 8)
+            ring.lineWidth = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 3 : 2
+            ring.stroke()
+        }
         let tint = chosen ? Palette.violet : Palette.muted
         Palette.symbol(icon, size: 16, color: tint)?.draw(in: NSRect(x: 15, y: 14, width: 17, height: 17))
         (title as NSString).draw(at: NSPoint(x: 44, y: 14), withAttributes: [.font:NSFont.systemFont(ofSize: 13, weight: chosen ? .semibold : .medium), .foregroundColor:chosen ? Palette.text : Palette.muted])
     }
-    @objc private func invoke() { perform?() }
+    override func accessibilityValue() -> Any? { NSNumber(value: chosen ? 1 : 0) }
+
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
+            if event.keyCode == 125 { moveSelection?(1); return }
+            if event.keyCode == 126 { moveSelection?(-1); return }
+        }
+        super.keyDown(with: event)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        needsDisplay = true
+        return super.becomeFirstResponder()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        needsDisplay = true
+        return super.resignFirstResponder()
+    }
+
+    @objc private func invoke() { if isEnabled { perform?() } }
+}
+
+final class WorkspaceScrollView: NSScrollView {
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.borderColor = Palette.line.cgColor
+        }
+    }
 }

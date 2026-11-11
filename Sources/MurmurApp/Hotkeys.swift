@@ -55,7 +55,8 @@ final class Hotkeys {
         return nil
     }
 
-    init() {
+    init(suspended: Bool = false) {
+        self.suspended = suspended
         refreshShortcuts()
     }
 

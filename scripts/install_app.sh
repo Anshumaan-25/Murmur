@@ -49,30 +49,14 @@ for existing in "$installed_app" "$legacy_app"; do
     fi
   fi
 done
-python3 - <<'PY'
-import os, signal, subprocess, time
-executables = (
-    '/Applications/Keydown.app/Contents/MacOS/Keydown',
-    '/Applications/Murmur.app/Contents/MacOS/Murmur',
-)
-for line in subprocess.check_output(['ps', '-axo', 'pid=,command='], text=True).splitlines():
-    parts = line.strip().split(None, 1)
-    if len(parts) != 2 or not any(parts[1] == executable or parts[1].startswith(executable + ' ') for executable in executables):
-        continue
-    pid = int(parts[0])
-    os.kill(pid, signal.SIGTERM)
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        try: os.kill(pid, 0)
-        except ProcessLookupError: break
-        time.sleep(0.05)
-    else: raise SystemExit('The running app did not quit. Installation stopped.')
-PY
+xcrun swiftc scripts/quit_installed_app.swift -o "$stage/quit-installed-app"
+"$stage/quit-installed-app" local.murmur.dictation 30 \
+  "$installed_app/Contents/MacOS/Keydown" "$legacy_app/Contents/MacOS/Murmur"
 stopped=1
 python3 scripts/replace_bundle.py "$staged_app" "$installed_app"
 published=1
 codesign --verify --deep --strict "$installed_app"
-open -g "$installed_app"
+open -g "$installed_app" --args --background
 published=0
 stopped=0
 if [ -d "$legacy_app" ]; then

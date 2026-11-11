@@ -7,6 +7,7 @@ import MurmurCore
 @MainActor enum NativeChecks {
     static func run(audioURL: URL? = nil, withCleanup: Bool = false, previewDirectory: URL? = nil) async -> [String: Any] {
         var results = await shortcutGestures()
+        results.merge(await windowIntegration()) { _, new in new }
         do {
             let shortcuts = Hotkeys()
             let testKey = UInt32(kVK_F20)
@@ -374,6 +375,231 @@ import MurmurCore
         } else {
             results["shortcut_replaced_escape_ignores_stale_events"] = false
         }
+        return results
+    }
+
+    private static func windowIntegration() async -> [String: Bool] {
+        var retentionFailure = false
+        let controller = DictationController(ephemeral: true, retentionCleanup: {
+            if retentionFailure { throw CocoaError(.fileWriteNoPermission) }
+        }, appIsActive: { true })
+        let hub = Hub(controller: controller)
+        guard let window = hub.window else { return ["hub_created": false] }
+        AppMenus.install(settingsTarget: hub, settingsAction: #selector(Hub.navigate))
+        hub.show()
+        await Task.yield()
+        var results = ["hub_uses_regular_activation": NSApp.activationPolicy() == .regular]
+        func go(_ page: Int) {
+            hub.navigation.selectedSegment = page
+            hub.navigate()
+        }
+        if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
+            hub.observedActivation(finder)
+            hub.observedActivation(.current)
+            results["preceding_app_tracks_external_activation"] = hub.previousApp == finder
+        }
+        go(1)
+        hub.words.string = "Synthetic vocabulary"
+        window.makeFirstResponder(hub.words)
+        hub.words.setSelectedRange(NSRange(location: 0, length: 0))
+        let edit = NSApp.mainMenu?.items.compactMap(\.submenu).first { $0.title == "Edit" }
+        let selectAll = edit?.items.first { $0.keyEquivalent == "a" }
+        if let selectAll, let action = selectAll.action, selectAll.target == nil {
+            // Exercise the responder chain owned by this fixture even when
+            // another app is frontmost. The menu supplies the selector.
+            window.firstResponder?.tryToPerform(action, with: selectAll)
+        }
+        results["native_edit_menu_selects_all"] = hub.words.selectedRange().length == 20
+        results["sidebar_accessibility_exposes_selection"] =
+            hub.sidebarButtons[1].accessibilityValue() as? Int == 1 && hub.sidebarButtons[0].accessibilityValue() as? Int == 0
+        go(2)
+        hub.snippetRows[0].0.stringValue = "synthetic trigger"
+        hub.snippetRows[0].1.string = "Synthetic expansion"
+        go(3)
+        hub.styleRows[0].0.stringValue = "example.synthetic"
+        go(4)
+        hub.fields["maximum"]?.stringValue = "47"
+        controller.validationChanged?()
+        hub.refreshPermissions()
+        results["settings_survive_validation_refresh"] = hub.fields["maximum"]?.stringValue == "47"
+        results["navigation_does_not_save_settings"] = controller.preferences.maximumSeconds != 47
+        go(1)
+        results["vocabulary_draft_survives_navigation"] = hub.words.string == "Synthetic vocabulary"
+        try? controller.history?.setDictionary(["Spelling added in review"])
+        hub.saveCurrentDraft(nil)
+        results["vocabulary_save_merges_external_additions"] =
+            (try? controller.history?.dictionary()) == ["Spelling added in review", "Synthetic vocabulary"]
+        go(2)
+        results["snippet_draft_survives_navigation"] = hub.snippetRows[0].0.stringValue == "synthetic trigger" && hub.snippetRows[0].1.string == "Synthetic expansion"
+        go(3)
+        results["style_draft_survives_navigation"] = hub.styleRows[0].0.stringValue == "example.synthetic"
+        go(4)
+        hub.fields["maximum"]?.stringValue = "invalid"
+        hub.saveCurrentDraft(nil)
+        results["invalid_settings_remain_dirty_and_unapplied"] =
+            hub.fields["maximum"]?.stringValue == "invalid" && controller.preferences.maximumSeconds != 47
+        hub.fields["maximum"]?.stringValue = "47"
+        hub.saveCurrentDraft(nil)
+        results["valid_settings_save"] = controller.preferences.maximumSeconds == 47
+
+        retentionFailure = true
+        hub.fields["maximum"]?.stringValue = "48"
+        hub.saveCurrentDraft(nil)
+        results["retention_failure_survives_settings_save"] =
+            controller.preferences.maximumSeconds == 48 && hub.statusLabel.stringValue.contains("could not be removed")
+        retentionFailure = false
+
+        let first = Utterance(timestamp: Date(timeIntervalSinceNow: -10), application: "fixture", duration: 1,
+                              raw: "Older fixture", cleaned: "Older fixture.", inserted: "", outcome: "fixture", latency: 0)
+        let newest = Utterance(application: "fixture", duration: 1, raw: "New fixture",
+                               cleaned: "New fixture.", inserted: "", outcome: "fixture", latency: 0)
+        try? controller.history?.save(first)
+        go(0)
+        hub.table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        go(1)
+        try? controller.history?.save(newest)
+        go(0)
+        results["history_refresh_preserves_record_identity"] =
+            hub.rows.indices.contains(hub.table.selectedRow) && hub.rows[hub.table.selectedRow].id == first.id
+                && hub.details.string.contains("Older fixture")
+
+        let layoutSizes = [NSSize(width: 760, height: 560), NSSize(width: 900, height: 650),
+                           NSSize(width: 1040, height: 760), NSSize(width: 1140, height: 820)]
+        func contained(_ view: NSView) -> Bool {
+            if let scroll = view as? NSScrollView, let stack = scroll.documentView as? NSStackView {
+                return stack.arrangedSubviews.allSatisfy { $0.frame.maxX <= stack.bounds.maxX + 1 }
+            }
+            return view.subviews.allSatisfy(contained)
+        }
+        results["hub_layout_matrix"] = layoutSizes.allSatisfy { size in
+            window.setFrame(NSRect(origin: window.frame.origin, size: size), display: false)
+            return (0...4).allSatisfy { page in
+                go(page)
+                hub.content.layoutSubtreeIfNeeded()
+                return contained(hub.content)
+            }
+        }
+
+        window.performClose(nil)
+        try? await Task.sleep(for: .milliseconds(150))
+        if let sheet = window.attachedSheet {
+            controller.start()
+            results["focused_sheet_blocks_new_recording"] = controller.sessions.id == nil
+            window.endSheet(sheet, returnCode: .alertThirdButtonReturn)
+            try? await Task.sleep(for: .milliseconds(160))
+            go(2)
+            results["dirty_close_cancel_preserves_draft"] = window.isVisible && hub.snippetRows[0].0.stringValue == "synthetic trigger"
+        } else {
+            results["dirty_close_cancel_preserves_draft"] = false
+        }
+        let storedHistory = controller.history
+        controller.history = nil
+        window.performClose(nil)
+        try? await Task.sleep(for: .milliseconds(120))
+        if let sheet = window.attachedSheet {
+            window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
+            try? await Task.sleep(for: .milliseconds(180))
+            results["failed_save_vetoes_close_and_keeps_draft"] = window.isVisible && hub.snippetRows[0].0.stringValue == "synthetic trigger"
+        } else {
+            results["failed_save_vetoes_close_and_keeps_draft"] = false
+        }
+        controller.history = storedHistory
+
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let review = ResultReviewController(board: board, role: .historyReview, presentation: controller.presentation, geometryDefaults: nil)
+        results["review_supports_native_minimize"] = review.window?.styleMask.contains(.miniaturizable) == true
+        review.update(raw: "Synthetic review", cleaned: "Synthetic review.", outcome: "Fixture")
+        review.present()
+        window.orderOut(nil)
+        results["parked_hub_keeps_regular_activation"] = NSApp.activationPolicy() == .regular
+        review.window?.miniaturize(nil)
+        try? await Task.sleep(for: .milliseconds(280))
+        results["minimized_review_keeps_content_and_identity"] =
+            review.window?.isMiniaturized == true && review.formattedText == "Synthetic review." && NSApp.activationPolicy() == .regular
+        hub.close()
+        await Task.yield()
+        results["review_alone_keeps_regular_activation"] = NSApp.activationPolicy() == .regular
+        review.close()
+        try? await Task.sleep(for: .milliseconds(100))
+        results["last_window_close_returns_to_accessory"] = NSApp.activationPolicy() == .accessory
+        results["review_close_clears_content"] = review.formattedText.isEmpty && review.rawText.isEmpty
+
+        let suite = "local.murmur.geometry." + UUID().uuidString
+        if let defaults = UserDefaults(suiteName: suite) {
+            let probe = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 780, height: 470),
+                                 styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            let placement = WindowPlacement(window: probe, role: .practice, defaults: defaults)
+            var resized = probe.frame
+            resized.size.width += 20
+            probe.setFrame(resized, display: false)
+            results["size_only_resize_persists_normal_frame"] =
+                defaults.string(forKey: "workspaceFrame.practice").map(NSRectFromString) == resized
+            let next = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 400),
+                                styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            let restored = WindowPlacement(window: next, role: .practice, defaults: defaults)
+            results["workspace_frame_restores_without_content"] = next.frame == resized && next.contentView?.subviews.isEmpty == true
+            NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: probe)
+            var duringTransition = resized
+            duringTransition.size.width += 8
+            probe.setFrame(duringTransition, display: false)
+            let keptNormalSize = defaults.string(forKey: "workspaceFrame.practice").map(NSRectFromString) == resized
+            placement.fullscreenTransitionFailed()
+            duringTransition.size.width += 8
+            probe.setFrame(duringTransition, display: false)
+            results["failed_fullscreen_transition_resumes_frame_saving"] =
+                keptNormalSize && defaults.string(forKey: "workspaceFrame.practice").map(NSRectFromString) == duringTransition
+            withExtendedLifetime((placement, restored)) {}
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let fallback = NSRect(x: 0, y: 20, width: 900, height: 650)
+        let negative = NSRect(x: -1600, y: 10, width: 1600, height: 900)
+        let saved = NSRect(x: -1500, y: 70, width: 760, height: 560)
+        let recover = WindowPlacement.reachable(saved, on: [fallback], fallback: fallback, initial: fallback)
+        results["disconnected_display_frame_recovered"] = fallback.contains(recover) && recover.size == saved.size
+        results["connected_negative_origin_frame_preserved"] =
+            WindowPlacement.reachable(saved, on: [negative, fallback], fallback: fallback, initial: fallback) == saved
+        let invalid = NSRect(x: CGFloat.nan, y: 0, width: 10, height: 10)
+        results["invalid_frame_uses_initial_frame"] =
+            WindowPlacement.reachable(invalid, on: [fallback], fallback: fallback, initial: fallback) == fallback
+
+        let compact = WindowPlacement.reachable(NSRect(x: 10, y: 10, width: 5, height: 5),
+                                                 on: [fallback], fallback: fallback, initial: fallback,
+                                                 minimum: NSSize(width: 760, height: 560))
+        results["corrupt_tiny_saved_frame_recovers_minimum"] = compact.size == NSSize(width: 760, height: 560)
+
+        var status = PermissionStatus.notDetermined
+        var requests = 0
+        var opens = 0
+        var refreshes = 0
+        let permission = PermissionAccess(status: { _ in status }, request: { _ in
+            requests += 1
+            status = .denied
+        }, open: { _ in opens += 1; return true })
+        _ = await permission.perform(.microphone) { refreshes += 1 }
+        _ = await permission.perform(.microphone) { refreshes += 1 }
+        status = .restricted
+        _ = await permission.perform(.microphone) { refreshes += 1 }
+        status = .authorized
+        _ = await permission.perform(.microphone) { refreshes += 1 }
+        results["permission_request_and_recovery_routes"] = requests == 1 && opens == 1 && refreshes == 2 && permission.pending.isEmpty
+
+        var reduceMotion = false
+        let center = NotificationCenter()
+        let indicator = Indicator(defaults: nil, workspaceNotifications: center, reducedMotion: { reduceMotion })
+        indicator.show("Processing", phase: .processing)
+        let animated = indicator.animating
+        reduceMotion = true
+        center.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        results["live_reduce_motion_stops_processing_animation"] =
+            animated && !indicator.animating && indicator.content.reduceMotion && indicator.panel.isVisible
+        indicator.show("Listening", phase: .listening)
+        results["reduced_motion_keeps_live_meter"] = indicator.animating && !indicator.panel.canBecomeKey
+        indicator.hide()
+        reduceMotion = false
+        center.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        results["display_preference_does_not_show_hidden_indicator"] = !indicator.animating && !indicator.panel.isVisible
+        NSApp.mainMenu = nil
         return results
     }
 

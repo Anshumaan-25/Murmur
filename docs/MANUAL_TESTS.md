@@ -49,3 +49,36 @@ Record the candidate's Settings build identifier and active provider for each ru
 32. Hold dictation through speech followed by a long noisy or silent tail; repeat with leading noise and speech/noise/speech. Results must open for review without automatic insertion or interpreting a selected-text edit. Check a normal utterance with a one-second pause still qualifies on the same device, and that quiet/short utterances remain available to copy. Three-second gap and two-second aggregate pause allowances are conservative policies, not speech-recognition guarantees.
 
 33. Dictate disposable references with colon, pipe, middle-dot and nested separators on both sides of a correction cue. Compare raw recognition to formatted text; no old prefix may survive with a substituted interior suffix. Re-run cleanup and verify stability. Check ordinary prose punctuation, signed numbers, percentages, times and weekday corrections remain usable.
+
+## macOS workspace and update checks
+
+Use the separately identified fixture for synthetic text and clipboard cases. Run
+`bash scripts/build_fixture.sh`, then run the fixture executable with `--native-checks`
+and run `python3 scripts/quit_checks.py`. The quit checks compile the same helper
+used by the installer and target only a temporary copy of the fixture.
+
+- On macOS 26 and 27, open Hub, Review, and Practice from the status menu.
+  Test native minimize and restore, Command-Tab, Dock reopen, Command-H, Stage
+  Manager grouping, and fullscreen. With Stage Manager off, the Dock follows
+  macOS preferences. Closing the last workspace removes Keydown from the Dock
+  and keeps the status item available. Minimized or hidden workspaces retain
+  their window state.
+- Repeat display checks with a compact work area and an external display.
+  Resize and relaunch, then disconnect the display and confirm the window
+  returns within reach. Confirm the status panel stays visible and never takes
+  keyboard focus during recording or processing.
+- Use Command-A, Command-Z, Command-W, Command-M, and Command-comma from the
+  workspace. Check VoiceOver selection announcements and keyboard navigation.
+  Change System, Light, and Dark appearance while editing a synthetic draft.
+- Change settings or a vocabulary entry, then switch pages and refresh access.
+  Check Save Changes, Discard Changes, and Cancel when closing and quitting.
+  Save failures should keep the remaining edits available. Review text clears
+  on close and remains available while minimized.
+- From a disposable account, test login-item startup, cold Finder and Spotlight
+  launch, background launch with `--background`, and reopening a running app.
+  Use the permission buttons for both microphone and legacy Speech Recognition
+  and verify status refresh on return from System Settings.
+- In a disposable signed upgrade, keep a dirty editor open and cancel the
+  installer's quit request. Confirm the installer aborts. Retry after saving and
+  confirm Keydown quits, the candidate starts in the background, and the
+  designated requirement and permission grants are retained.
