@@ -40,13 +40,22 @@ struct Destination {
         if let element { _ = AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &selectedSettable) }
         let editable = [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role) || selectedSettable.boolValue || (element.flatMap { attribute($0, "AXEditable") as? Bool } ?? false)
         let secured = IsSecureEventInputEnabled() || subrole == kAXSecureTextFieldSubrole || (element.flatMap { attribute($0, "AXProtectedContent") as? Bool } ?? false)
+        let editorWindow = ownedElement(element.flatMap { attribute($0, kAXWindowAttribute) }, pid: pid)
+        // During a window switch AX can briefly return the previous window's editor.
+        let windowConsistent = focusedWindow.flatMap { window in editorWindow.map { CFEqual(window, $0) } } ?? true
+        let enabled = element.flatMap { attribute($0, kAXEnabledAttribute) as? Bool } != false
+        let acceptsText = windowConsistent && enabled && editable
         var range: CFRange?
-        if !secured, let element, let ref = attribute(element, kAXSelectedTextRangeAttribute), CFGetTypeID(ref) == AXValueGetTypeID() {
+        if !secured, acceptsText, let element, let ref = attribute(element, kAXSelectedTextRangeAttribute), CFGetTypeID(ref) == AXValueGetTypeID() {
             let ax = unsafeBitCast(ref, to: AXValue.self); var result = CFRange()
             if AXValueGetType(ax) == .cfRange && AXValueGetValue(ax, .cfRange, &result) { range = result }
         }
-        let windowElement = ownedElement(element.flatMap { attribute($0, kAXWindowAttribute) }, pid: pid) ?? focusedWindow
-        return Destination(pid: pid, bundle: app?.bundleIdentifier ?? "", element: element, windowElement: windowElement, value: secured ? nil : element.flatMap { attribute($0, kAXValueAttribute) as? String }, selection: range, selectedText: secured ? "" : element.flatMap { attribute($0, kAXSelectedTextAttribute) as? String } ?? "", protected: secured, editable: editable, role: role)
+        return Destination(pid: pid, bundle: app?.bundleIdentifier ?? "", element: element,
+                           windowElement: focusedWindow ?? editorWindow,
+                           value: secured || !acceptsText ? nil : element.flatMap { attribute($0, kAXValueAttribute) as? String },
+                           selection: range,
+                           selectedText: secured || !acceptsText ? "" : element.flatMap { attribute($0, kAXSelectedTextAttribute) as? String } ?? "",
+                           protected: secured, editable: acceptsText, role: role)
     }
     private static func ownedElement(_ ref: CFTypeRef?, pid: pid_t) -> AXUIElement? {
         guard let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
@@ -66,24 +75,33 @@ struct Destination {
               AXIsProcessTrusted(), !IsSecureEventInputEnabled() else { return self }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.1)
-        // Electron exposes its editor tree through this assistive-technology attribute.
-        // Request it only when the focused editor is missing and the session can track focus.
-        let requested = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
-        // A window can also publish its focused editor just after the initial snapshot.
-        // Unsupported apps get a single read retry without a wake-up delay.
-        for attempt in 0..<(requested == .success ? 4 : 1) {
-            if attempt > 0 { try? await Task.sleep(for: .milliseconds(70)) }
+        // WebKit and Chromium hosts can build their editor tree on demand.
+        // Try the app's existing accessibility mode before requesting enhanced mode.
+        let manual = requestAccessibility("AXManualAccessibility", app: app)
+        let enhanced = manual ? false : requestAccessibility("AXEnhancedUserInterface", app: app)
+        let waits = manual || enhanced ? [0, 70, 100, 150, 180] : [0]
+        for wait in waits {
+            if wait > 0 { try? await Task.sleep(for: .milliseconds(wait)) }
             guard !Task.isCancelled, !continuity.invalidated, continuity.available,
                   NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return self }
             let current = Self.capture()
-            guard current.pid == pid, !current.protected,
-                  let currentWindow = current.windowElement, CFEqual(windowElement, currentWindow) else { return self }
+            guard current.pid == pid else { return self }
+            if current.protected { return current }
+            guard let currentWindow = current.windowElement else { continue }
+            guard CFEqual(windowElement, currentWindow) else { return self }
             if DeliveryPolicy.canResolveEditor(original: evidence, current: current.evidence,
                                                 sameWindow: true, trackedUnchangedFocus: !continuity.invalidated) {
                 return current
             }
+            guard containerRoles.contains(current.role) else { return self }
         }
         return self
+    }
+
+    private func requestAccessibility(_ key: String, app: AXUIElement) -> Bool {
+        if Self.attribute(app, key) as? Bool == true { return true }
+        let status = AXUIElementSetAttributeValue(app, key as CFString, kCFBooleanTrue)
+        return status == .success || Self.attribute(app, key) as? Bool == true
     }
 
     var screenPoint: NSPoint? {
@@ -106,6 +124,28 @@ struct Destination {
     }
     var diagnostic: [String:Any] {
         ["app":bundle, "role":role, "has_element":element != nil, "editable":editable, "protected":protected, "has_selection":selection != nil, "has_value":value != nil, "has_window":windowElement != nil]
+    }
+
+    /// Structural metadata only: never exports values, titles, selected text or identifiers.
+    static func focusDiagnostics() -> [String: Any] {
+        let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.1)
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.1)
+        let window = ownedElement(attribute(app, kAXFocusedWindowAttribute), pid: pid)
+        var result: [String: Any] = [:]
+        for (name, source) in [("app", app), ("system", system)] + (window.map { [("window", $0)] } ?? []) {
+            var value: CFTypeRef?
+            let code = AXUIElementCopyAttributeValue(source, kAXFocusedUIElementAttribute as CFString, &value)
+            result[name + "_focus_error"] = code.rawValue
+            result[name + "_focus_role"] = ownedElement(value, pid: pid).flatMap { attribute($0, kAXRoleAttribute) as? String } ?? ""
+        }
+        if let window { result["full_screen"] = attribute(window, "AXFullScreen") as? Bool ?? false }
+        for key in ["AXManualAccessibility", "AXEnhancedUserInterface"] {
+            result[key] = attribute(app, key) as? Bool ?? false
+        }
+        return result
     }
 }
 

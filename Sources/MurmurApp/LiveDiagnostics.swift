@@ -13,6 +13,7 @@ import MurmurCore
         if let controller {
             result["indicator"] = controller.indicator.diagnostic
             result["media_pause"] = controller.mediaPauseStatus
+            result["speech_evidence"] = controller.speechDiagnostic
             if let data = try? JSONEncoder().encode(controller.trace.entries), let events = try? JSONSerialization.jsonObject(with: data) { result["events"] = events }
             result["background"] = [
                 "suspended": controller.isSuspended,
@@ -36,9 +37,11 @@ import MurmurCore
         let continuity = FocusContinuity(pid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0, toggleKey: UInt16(clamping: prefs.toggleKey), holdKey: prefs.holdEnabled ? UInt16(prefs.holdKey.code) : nil)
         defer { continuity.stop() }
         let original = Destination.capture()
+        let before = Destination.focusDiagnostics()
+        let resolved = await original.resolveEditor(continuity: continuity)
         let current = Destination.capture()
-        let reason = original.reason(comparedTo: current, focusChanged: continuity.pid != original.pid || continuity.invalidated)
-        publish(controller: controller, focus: ["original":original.diagnostic, "current":current.diagnostic, "reason":reason.rawValue, "focus_tracking_available":continuity.available, "focus_unchanged":!continuity.invalidated, "posted_input":false])
+        let reason = resolved.reason(comparedTo: current, focusChanged: continuity.pid != original.pid || continuity.invalidated)
+        publish(controller: controller, focus: ["original":original.diagnostic, "resolved":resolved.diagnostic, "current":current.diagnostic, "before":before, "after":Destination.focusDiagnostics(), "reason":reason.rawValue, "focus_tracking_available":continuity.available, "focus_unchanged":!continuity.invalidated, "posted_input":false])
     }
     static func read(inspectFocus: Bool = false) -> [String: Any] {
         let peers = NSRunningApplication.runningApplications(withBundleIdentifier: "local.murmur.dictation").filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }

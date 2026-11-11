@@ -2,7 +2,11 @@ import AppKit
 import WebKit
 
 final class FixtureApplication: NSApplication {
-    override var accessibilityFocusedUIElement: Any? { CommandLine.arguments.contains("--opaque") ? nil : super.accessibilityFocusedUIElement }
+    weak var staleEditor: NSTextView?
+    override var accessibilityFocusedUIElement: Any? {
+        if CommandLine.arguments.contains("--opaque") { return nil }
+        return staleEditor ?? super.accessibilityFocusedUIElement
+    }
 }
 final class FixtureWindow: NSWindow {
     override var accessibilityFocusedUIElement: Any? { CommandLine.arguments.contains("--opaque") ? nil : super.accessibilityFocusedUIElement }
@@ -13,6 +17,7 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate
     let window = FixtureWindow(contentRect: NSRect(x: 300, y: 300, width: 640, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     let output = URL(fileURLWithPath: CommandLine.arguments[1])
     let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 640, height: 300))
+    var otherWindow: NSWindow?
     var web: WKWebView?
     var checkedUndo = false
     func report(_ value: String, ready: Bool = true) {
@@ -29,9 +34,21 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate
             web.loadHTMLString("<html><body style='background:#181827;color:white;font:18px system-ui'><p>Disposable web text destination</p><textarea id='draft' aria-label='Fixture draft' style='width:90%;height:120px' oninput='window.webkit.messageHandlers.fixture.postMessage(this.value)'>Prefix: </textarea><script>window.onload=()=>{let e=document.getElementById('draft');e.focus();e.setSelectionRange(e.value.length,e.value.length);window.webkit.messageHandlers.fixture.postMessage(e.value)}</script></body></html>", baseURL: nil)
         } else {
             text.isRichText = false; text.isEditable = true; text.allowsUndo = true; text.delegate = self; text.font = .systemFont(ofSize: 20); text.setAccessibilityIdentifier("fixture-draft"); text.string = "Prefix: "; text.setSelectedRange(NSRange(location: 8, length: 0)); window.contentView = text; window.makeFirstResponder(text); if CommandLine.arguments.contains("--opaque") { text.setAccessibilityElement(false); window.setAccessibilityChildren([]) }; report(text.string)
+            if CommandLine.arguments.contains("--disabled") { text.setAccessibilityEnabled(false) }
+            if CommandLine.arguments.contains("--protected") { text.setAccessibilitySubrole(.secureTextField) }
         }
         NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil)
         if web == nil { window.makeFirstResponder(text) }
+        if CommandLine.arguments.contains("--stale-window") {
+            let other = NSWindow(contentRect: NSRect(x: 320, y: 320, width: 240, height: 120),
+                                 styleMask: [.titled], backing: .buffered, defer: false)
+            let stale = NSTextView(frame: other.contentLayoutRect)
+            stale.string = "Synthetic editor in a different window"
+            other.contentView = stale
+            other.orderBack(nil)
+            otherWindow = other
+            (NSApp as? FixtureApplication)?.staleEditor = stale
+        }
     }
     func textDidChange(_ notification: Notification) {
         report(text.string)

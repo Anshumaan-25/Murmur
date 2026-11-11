@@ -63,6 +63,9 @@ func polishTextChecks() {
     let mediaRoundTrip = try? JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(mediaDisabled))
     expect(mediaRoundTrip?.pauseMedia == false, "media pause opt out survives saving")
 
+    expect(SpeechEvidence().deliveryBlock(held: false) == "incomplete", "uncompleted speech diagnostic names incomplete analysis")
+    var failedDiagnostic = SpeechEvidence(); failedDiagnostic.fail()
+    expect(failedDiagnostic.deliveryBlock(held: true) == "analysis_failed", "failed speech diagnostic distinguishes failure from quiet speech")
     var activity = SpeechEvidence()
     activity.observe(start: 0, end: 0.5, confidence: 0.95)
     activity.observe(start: 0.25, end: 0.75, confidence: 0.95)
@@ -72,6 +75,7 @@ func polishTextChecks() {
     expect(!activity.allowsAutomaticDelivery, "unfinished analysis cannot authorize delivery")
     activity.complete()
     expect(activity.allowsAutomaticDelivery, "completed confident speech can authorize delivery")
+    expect(activity.deliveryBlock(held: false) == "ready", "eligible evidence reports ready")
     var ambiguousActivity = SpeechEvidence()
     ambiguousActivity.observe(start: 0, end: 0.5, confidence: 0.95)
     for i in 1...6 { ambiguousActivity.observe(start: Double(i) * 0.25, end: Double(i) * 0.25 + 0.5, confidence: 0.5) }

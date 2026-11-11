@@ -51,8 +51,9 @@ import MurmurCore
         guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else { return ["error": "Grant Accessibility to Keydown Fixture."] }
         let continuity = FocusContinuity(pid: pid, toggleKey: 49, holdKey: nil)
         defer { continuity.stop() }
-        let original = Destination.capture()
-        guard original.pid == pid, original.bundle == targetBundle else { return ["error": "The owned fixture is not focused."] }
+        let initial = Destination.capture()
+        guard initial.pid == pid, initial.bundle == targetBundle else { return ["error": "The owned fixture is not focused."] }
+        let original = await initial.resolveEditor(continuity: continuity)
         if moveCursor {
             for down in [true, false] {
                 CGEvent(keyboardEventSource: nil, virtualKey: 124, keyDown: down)?.postToPid(pid)

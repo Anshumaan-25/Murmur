@@ -18,11 +18,28 @@ public struct SpeechEvidence: Sendable {
     private var duration: Double { completed ? completedDuration : analyzedThrough }
     public var unqualifiedSeconds: Double { max(0, duration - speechSeconds) }
     public var longestUnqualifiedSpan: Double { standard.longestGap(through: duration) }
-    public var allowsAutomaticDelivery: Bool { completed && !failed && standard.permitsDelivery(through: duration) }
+    public var allowsAutomaticDelivery: Bool { deliveryBlock(held: false) == "ready" }
 
     /// A deliberate hold can include moderately confident speech next to a strong
     /// speech window. The same full-clip coverage rules still apply.
-    public var allowsHeldDictationDelivery: Bool { completed && !failed && held.permitsDelivery(through: duration) }
+    public var allowsHeldDictationDelivery: Bool { deliveryBlock(held: true) == "ready" }
+
+    public func deliveryBlock(held useHeld: Bool) -> String {
+        if failed { return "analysis_failed" }
+        if !completed { return "incomplete" }
+        let coverage = useHeld ? held : standard
+        if !coverage.sustained { return "no_sustained_speech" }
+        if coverage.longestGap(through: duration) > 3 { return "long_unqualified_gap" }
+        if max(0, duration - coverage.seconds) > coverage.seconds + 2 { return "insufficient_coverage" }
+        return "ready"
+    }
+
+    public func diagnostic(held: Bool) -> [String: Any] {
+        ["reason": deliveryBlock(held: held), "held": held, "completed": completed,
+         "failed": failed, "analyzed_seconds": analyzedThrough, "duration_seconds": duration,
+         "speech_seconds": (held ? self.held : standard).seconds,
+         "longest_gap_seconds": (held ? self.held : standard).longestGap(through: duration)]
+    }
 
     public mutating func observe(start: Double, end: Double, confidence: Double) {
         guard !failed, !completed else { return }
@@ -71,8 +88,5 @@ public struct SpeechEvidence: Sendable {
             max(longestClosedGap, duration - (lastEnd ?? 0))
         }
 
-        func permitsDelivery(through duration: Double) -> Bool {
-            sustained && longestGap(through: duration) <= 3 && max(0, duration - seconds) <= seconds + 2
-        }
     }
 }

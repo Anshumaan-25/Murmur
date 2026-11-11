@@ -15,6 +15,7 @@ import MurmurCore
     private let captureAuthorized: () -> Bool
     private let appIsActive: () -> Bool
     private(set) var mediaPauseStatus = "not_requested"
+    private(set) var speechDiagnostic: [String: Any] = [:]
     let hotkeys: Hotkeys
     let inserter: ClipboardInserter
     var destination: Destination?
@@ -249,6 +250,7 @@ import MurmurCore
         let triggered = triggerUptime ?? ProcessInfo.processInfo.systemUptime
         stopWork()
         commandMode = command
+        speechDiagnostic = [:]
         let identity = sessions.prepare(); began = ProcessInfo.processInfo.systemUptime
         trace.record(.starting, session: identity); drawingSession = nil; lastSignal = nil; listeningFeedback = ListeningFeedback(); indicator.preferredPoint = nil
         indicator.didDraw = { [weak self] in
@@ -462,6 +464,7 @@ import MurmurCore
         }
     }
     func reviewIfUncertain(evidence: SpeechEvidence, raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool, held: Bool = false) -> Bool {
+        speechDiagnostic = evidence.diagnostic(held: held && !editing)
         let eligible = held && !editing ? evidence.allowsHeldDictationDelivery : evidence.allowsAutomaticDelivery
         guard !eligible else { return false }
         // This gate precedes cleanup, edit interpretation and insertion. Review
