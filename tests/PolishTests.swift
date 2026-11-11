@@ -122,6 +122,13 @@ func polishTextChecks() {
     expect(AudioSignal.classify(rms: 0.001, peak: 0.002, received: true) == .quiet, "quiet input has useful feedback")
     expect(AudioSignal.classify(rms: 0.3, peak: 1, received: true) == .clipped, "clipped input is distinct from quiet input")
     expect(AudioSignal.classify(rms: 0, peak: 0, received: false) == .noInput, "no buffers are distinct from silence")
+    var feedback = ListeningFeedback()
+    expect(feedback.update(.quiet, at: 10) == .active, "a short pause keeps the Listening label")
+    expect(feedback.update(.silent, at: 11.99) == .active, "quiet and silence share one two-second buffer")
+    expect(feedback.update(.quiet, at: 12) == .quiet, "sustained quiet shows a warning")
+    expect(feedback.update(.active, at: 12.2) == .active, "voice immediately clears the warning")
+    expect(feedback.update(.quiet, at: 12.4) == .active, "each pause gets a fresh buffer")
+    expect(feedback.update(.clipped, at: 12.5) == .clipped, "clipping is reported immediately")
     expect(RuleCleanup().apply("  iPhone comma one  ", context: TextContext(mode: .exact)) == "  iPhone comma one  ", "exact mode preserves bytes")
     expect(RuleCleanup().apply("spell A B hyphen zero zero seven", context: TextContext(mode: .exact)) == "AB-007", "explicit spelling preserves leading zeros")
     expect(RuleCleanup().apply("spell three dot fourteen dot two", context: TextContext(mode: .exact)) == "3.14.2", "explicit spelling supports versions")
@@ -139,6 +146,9 @@ func polishTextChecks() {
     let screen = CGRect(x: -1440, y: -300, width: 1440, height: 900)
     let placed = IndicatorLayout.frame(in: screen, size: CGSize(width: 376, height: 78), anchor: CGPoint(x: 20, y: -20))
     expect(screen.contains(placed), "indicator clamps invalid anchor on a negative-origin display")
+    let defaultFrame = IndicatorLayout.frame(in: screen, size: CGSize(width: 376, height: 78))
+    expect(defaultFrame.maxX == screen.maxX - 12 && defaultFrame.maxY == screen.maxY - 12,
+           "the recording indicator defaults to the top right")
     let narrow = CGRect(x: 0, y: 0, width: 320, height: 200)
     expect(narrow.contains(IndicatorLayout.frame(in: narrow, size: CGSize(width: 376, height: 78))), "indicator fits a small visible display")
     let cases: [(String, String)] = [

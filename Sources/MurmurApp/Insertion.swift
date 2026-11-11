@@ -22,12 +22,15 @@ struct Destination {
         let pid = app?.processIdentifier ?? 0
         let root = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(root, 0.1)
+        let focusedWindow = ownedElement(attribute(root, kAXFocusedWindowAttribute), pid: pid)
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.1)
+        let sources = [root, system] + (focusedWindow.map { [$0] } ?? [])
         var element: AXUIElement?
-        let system = AXUIElementCreateSystemWide(); AXUIElementSetMessagingTimeout(system, 0.1)
-        for source in [root, system] {
-            if let ref = attribute(source, kAXFocusedUIElementAttribute), CFGetTypeID(ref) == AXUIElementGetTypeID() {
-                let candidate = unsafeBitCast(ref, to: AXUIElement.self); var owner: pid_t = 0
-                if AXUIElementGetPid(candidate, &owner) == .success && owner == pid { element = candidate; break }
+        for source in sources {
+            if let candidate = ownedElement(attribute(source, kAXFocusedUIElementAttribute), pid: pid) {
+                element = candidate
+                break
             }
         }
         if let element { AXUIElementSetMessagingTimeout(element, 0.1) }
@@ -42,10 +45,47 @@ struct Destination {
             let ax = unsafeBitCast(ref, to: AXValue.self); var result = CFRange()
             if AXValueGetType(ax) == .cfRange && AXValueGetValue(ax, .cfRange, &result) { range = result }
         }
-        var windowElement: AXUIElement?
-        if let ref = element.flatMap({ attribute($0, kAXWindowAttribute) }) ?? attribute(root, kAXFocusedWindowAttribute), CFGetTypeID(ref) == AXUIElementGetTypeID() { windowElement = unsafeBitCast(ref, to: AXUIElement.self) }
+        let windowElement = ownedElement(element.flatMap { attribute($0, kAXWindowAttribute) }, pid: pid) ?? focusedWindow
         return Destination(pid: pid, bundle: app?.bundleIdentifier ?? "", element: element, windowElement: windowElement, value: secured ? nil : element.flatMap { attribute($0, kAXValueAttribute) as? String }, selection: range, selectedText: secured ? "" : element.flatMap { attribute($0, kAXSelectedTextAttribute) as? String } ?? "", protected: secured, editable: editable, role: role)
     }
+    private static func ownedElement(_ ref: CFTypeRef?, pid: pid_t) -> AXUIElement? {
+        guard let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
+        let element = unsafeBitCast(ref, to: AXUIElement.self)
+        var owner: pid_t = 0
+        guard AXUIElementGetPid(element, &owner) == .success, owner == pid else { return nil }
+        AXUIElementSetMessagingTimeout(element, 0.1)
+        return element
+    }
+
+    @MainActor func resolveEditor(continuity: FocusContinuity?) async -> Destination {
+        let containerRoles = ["", "AXApplication", "AXWindow", "AXGroup", "AXWebArea", "AXScrollArea", "AXUnknown"]
+        guard !Task.isCancelled, !editable, !protected, containerRoles.contains(role),
+              pid > 0, let windowElement, let continuity, continuity.pid == pid,
+              continuity.available, !continuity.invalidated,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+              AXIsProcessTrusted(), !IsSecureEventInputEnabled() else { return self }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.1)
+        // Electron exposes its editor tree through this assistive-technology attribute.
+        // Request it only when the focused editor is missing and the session can track focus.
+        let requested = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        // A window can also publish its focused editor just after the initial snapshot.
+        // Unsupported apps get a single read retry without a wake-up delay.
+        for attempt in 0..<(requested == .success ? 4 : 1) {
+            if attempt > 0 { try? await Task.sleep(for: .milliseconds(70)) }
+            guard !Task.isCancelled, !continuity.invalidated, continuity.available,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return self }
+            let current = Self.capture()
+            guard current.pid == pid, !current.protected,
+                  let currentWindow = current.windowElement, CFEqual(windowElement, currentWindow) else { return self }
+            if DeliveryPolicy.canResolveEditor(original: evidence, current: current.evidence,
+                                                sameWindow: true, trackedUnchangedFocus: !continuity.invalidated) {
+                return current
+            }
+        }
+        return self
+    }
+
     var screenPoint: NSPoint? {
         guard let windowElement,
               let position = Self.attribute(windowElement, kAXPositionAttribute), CFGetTypeID(position) == AXValueGetTypeID(),

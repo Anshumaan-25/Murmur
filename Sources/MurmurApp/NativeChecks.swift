@@ -263,8 +263,25 @@ import MurmurCore
             let session = controller.sessions.prepare()
             _ = controller.sessions.transition(.processing, session: session)
             var delivered = false; controller.received = { _ in delivered = true }
+            let windows = NSApp.windows.filter { $0.isVisible }
+            let policy = NSApp.activationPolicy()
             controller.retainUncertain(raw: "Synthetic uncertain instruction", identity: session, application: "fixture", duration: 2, frames: [], practice: false, editing: true)
             results["uncertain_speech_is_retained_without_automatic_delivery"] = !delivered && controller.lastText == "Synthetic uncertain instruction" && controller.sessions.phase == .idle
+            results["uncertain_speech_does_not_open_review_or_show_popup"] =
+                NSApp.windows.filter { $0.isVisible } == windows && NSApp.activationPolicy() == policy && !controller.indicator.panel.isVisible
+            controller.setSuspended(true)
+        }
+        do {
+            let controller = DictationController(ephemeral: true)
+            _ = controller.sessions.begin()
+            controller.announce("Listening…")
+            let showedWhileListening = controller.indicator.panel.isVisible
+            controller.finish()
+            results["stop_immediately_hides_listening_overlay"] =
+                showedWhileListening && controller.sessions.phase == .processing && !controller.indicator.panel.isVisible
+            await controller.activeTask?.value
+            results["decode_failure_does_not_reopen_overlay"] =
+                controller.sessions.phase == .failed && !controller.indicator.panel.isVisible
             controller.setSuspended(true)
         }
         for link in links {

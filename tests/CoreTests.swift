@@ -404,6 +404,22 @@ expect(abs(sixty.value - thirty.value) < 0.00001, "meter response is independent
 let opaque = FocusEvidence(pid: 42, editable: false)
 expect(DeliveryPolicy.decide(original: opaque, current: opaque, sameElement: true, trusted: true) == .unreadable, "opaque container identity cannot establish keyboard focus")
 expect(DeliveryPolicy.decide(original: opaque, current: focus, sameElement: false, trusted: true) == .unreadable, "late AX revelation cannot replace the initial anchor")
+expect(DeliveryPolicy.canResolveEditor(original: opaque, current: focus, sameWindow: true, trackedUnchangedFocus: true),
+       "startup can adopt an exposed editor with uninterrupted focus in the same window")
+expect(!DeliveryPolicy.canResolveEditor(original: opaque, current: focus, sameWindow: true, trackedUnchangedFocus: false),
+       "an unobserved or interrupted focus interval cannot recover the editor")
+expect(!DeliveryPolicy.canResolveEditor(original: opaque, current: focus, sameWindow: false, trackedUnchangedFocus: true),
+       "startup recovery cannot switch windows")
+var protectedEditor = focus
+protectedEditor.protected = true
+expect(!DeliveryPolicy.canResolveEditor(original: opaque, current: protectedEditor, sameWindow: true, trackedUnchangedFocus: true),
+       "startup recovery cannot adopt a protected editor")
+var otherAppEditor = focus
+otherAppEditor.pid = 43
+expect(!DeliveryPolicy.canResolveEditor(original: opaque, current: otherAppEditor, sameWindow: true, trackedUnchangedFocus: true),
+       "startup recovery cannot adopt another application")
+expect(!DeliveryPolicy.canResolveEditor(original: focus, current: focus, sameWindow: true, trackedUnchangedFocus: true),
+       "an existing editor anchor cannot be replaced")
 var activity = FocusActivity()
 activity.key(49, dictationChord: true, toggleKey: 49, holdKey: nil)
 expect(activity.unchanged, "dictation toggle does not invalidate keyboard focus")

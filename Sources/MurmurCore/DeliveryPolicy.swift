@@ -29,6 +29,14 @@ public struct FocusEvidence: Sendable {
     }
 }
 public enum DeliveryPolicy {
+    /// During startup only, an app may expose an editor after its accessibility tree loads.
+    public static func canResolveEditor(original: FocusEvidence, current: FocusEvidence,
+                                        sameWindow: Bool, trackedUnchangedFocus: Bool) -> Bool {
+        !original.editable && current.editable && !original.protected && !current.protected
+            && original.pid > 0 && original.pid == current.pid && sameWindow && trackedUnchangedFocus
+    }
+
+
     public static func decide(original: FocusEvidence, current: FocusEvidence, sameElement: Bool, sameWindow: Bool = true, trusted: Bool, requireSelection: Bool = false, focusChanged: Bool = false) -> DeliveryReason {
         guard !original.protected, !current.protected else { return .protectedField }
         guard trusted else { return .accessibility }

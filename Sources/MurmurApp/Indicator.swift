@@ -14,7 +14,6 @@ final class IndicatorView: NSView {
     var dragOffset = NSPoint.zero
     var didDock: ((NSRect, NSRect) -> Void)?
     var didDraw: (() -> Void)?
-    var hasActions = false
     private var bars = [Double](repeating: 0, count: 25)
     func step(level: Double, delta: Double) {
         amplitude = level; time += delta
@@ -45,7 +44,7 @@ final class IndicatorView: NSView {
         if isLong { paragraph.lineBreakMode = .byWordWrapping }
         (message as NSString).draw(in: NSRect(x: 140, y: isLong ? 29 : 38, width: bounds.width - 157, height: isLong ? 33 : 18), withAttributes: [.font:font, .foregroundColor:Palette.text, .paragraphStyle:paragraph])
         let hint = phase == .listening ? "Speak naturally · Esc to cancel" : (phase == .processing ? "Transcribing on your Mac" : (message.hasPrefix("Copied") ? "Your text is on the clipboard" : "KEYDOWN · ON DEVICE"))
-        if !hasActions { (hint as NSString).draw(at: NSPoint(x: 140, y: 17), withAttributes: [.font:NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor:Palette.muted]) }
+        (hint as NSString).draw(at: NSPoint(x: 140, y: 17), withAttributes: [.font:NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor:Palette.muted])
     }
     override func mouseDown(with event: NSEvent) { dragOffset = event.locationInWindow }
     override func mouseDragged(with event: NSEvent) { let point = NSEvent.mouseLocation; window?.setFrameOrigin(NSPoint(x: point.x - dragOffset.x, y: point.y - dragOffset.y)) }
@@ -73,7 +72,6 @@ final class IndicatorView: NSView {
     private var accessibilityObserver: NSObjectProtocol?
     private let workspaceNotifications: NotificationCenter
     private let reducedMotion: @MainActor () -> Bool
-    private var actionButtons: [NSButton] = []
     var preferredPoint: NSPoint?
     var didDraw: (() -> Void)?
     var animating: Bool { timer != nil }
@@ -116,7 +114,7 @@ final class IndicatorView: NSView {
     private func place() {
         let point = preferredPoint ?? NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main ?? NSScreen.screens.first else { return }
-        var anchor = CGPoint(x: 0.5, y: 0.03)
+        var anchor = CGPoint(x: 1, y: 1)
         if let dock = defaults?.array(forKey: "indicatorDock") as? [Double], dock.count == 2 {
             anchor = CGPoint(x: dock[0], y: dock[1])
         } else if let legacy = defaults?.string(forKey: "indicatorPosition") {
@@ -125,20 +123,9 @@ final class IndicatorView: NSView {
         }
         panel.setFrame(IndicatorLayout.frame(in: screen.visibleFrame, size: CGSize(width: 376, height: 78), anchor: anchor), display: true)
     }
-    func recovery(copy: (() -> Void)?, review: (() -> Void)?) {
-        actionButtons.forEach { $0.removeFromSuperview() }; actionButtons = []
-        for (index, pair) in [("Copy", copy), ("Review", review)].enumerated() {
-            guard let action = pair.1 else { continue }
-            let button = ActionButton(pair.0, action)
-            button.frame = NSRect(x: 140 + index * 90, y: 6, width: 82, height: 24)
-            button.translatesAutoresizingMaskIntoConstraints = true
-            content.addSubview(button); actionButtons.append(button)
-        }
-        content.hasActions = !actionButtons.isEmpty; content.needsDisplay = true
-    }
     func preview(reset: Bool = false) {
         if reset { defaults?.removeObject(forKey: "indicatorDock"); defaults?.removeObject(forKey: "indicatorPosition") }
-        recovery(copy: nil, review: nil); preferredPoint = nil; show("Recording indicator preview", phase: .idle)
+        preferredPoint = nil; show("Recording indicator preview", phase: .idle)
     }
     var diagnostic: [String: Any] {
         ["visible": panel.isVisible, "alpha": panel.alphaValue, "level": panel.level.rawValue,
@@ -166,7 +153,7 @@ final class IndicatorView: NSView {
             let work = DispatchWorkItem { [weak self] in
                 guard self?.generation == current else { return }; self?.hide()
             }; dismissal = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + (content.hasActions ? 8 : (phase == .failed || message.hasPrefix("Copied") ? 6 : 2)), execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
         }
     }
     private func updateAnimation() {

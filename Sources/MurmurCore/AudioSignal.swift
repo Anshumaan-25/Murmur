@@ -18,3 +18,20 @@ public enum AudioSignal: String, Sendable {
         }
     }
 }
+
+/// Meter feedback only. Recognition and hands-free stopping use their own evidence.
+public struct ListeningFeedback: Sendable {
+    private var quietSince: TimeInterval?
+    public init() {}
+
+    public mutating func update(_ signal: AudioSignal, at time: TimeInterval) -> AudioSignal {
+        switch signal {
+        case .quiet, .silent:
+            if quietSince == nil { quietSince = time }
+            return time - (quietSince ?? time) >= 2 ? .quiet : .active
+        default:
+            quietSince = nil
+            return signal
+        }
+    }
+}
