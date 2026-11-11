@@ -561,10 +561,11 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         enginePicker.target = self
         enginePicker.action = #selector(refreshEnginePermissions)
         body.addArrangedSubview(row([label("Speech engine"), enginePicker]))
-        for (key, title, value) in [("pauseMedia", "Pause current media before dictation", prefs.pauseMedia), ("hold", "Enable the selected hold-to-talk key", prefs.holdEnabled), ("code", "Preserve exact syntax in code editors and terminals", prefs.preserveCode), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
+        for (key, title, value) in [("pauseMedia", "Pause current media before dictation", prefs.pauseMedia), ("hold", "Enable the selected hold-to-talk key", prefs.holdEnabled), ("directHold", "Paste on hold release even when speech is uncertain", prefs.pasteUncertainOnHoldRelease), ("code", "Preserve exact syntax in code editors and terminals", prefs.preserveCode), ("hands", "Hands-free: finish after silence", prefs.handsFree), ("context", "Use selected and nearby text as local spelling context", prefs.contextEnabled), ("audio", "Keep recordings on this Mac (off by default)", prefs.keepAudio)] {
             let check = NSButton(checkboxWithTitle: title, target: nil, action: nil); check.state = value ? .on : .off; checks[key] = check; body.addArrangedSubview(check)
         }
         body.addArrangedSubview(label("Media stays paused afterward. Pause targets the macOS Now Playing session; unsupported or simultaneous players may need manual pausing. No system volume changes."))
+        body.addArrangedSubview(label("With paste on hold release enabled, background noise may occasionally produce unwanted words. Keydown still checks the destination before pasting."))
         let holdHelp = prefs.holdKey == .globe ? "Set Keyboard → Press globe key → Do Nothing to avoid the emoji picker." : "Your chosen hold key is passed through to the app you are using."
         body.addArrangedSubview(label("Hold your chosen key by itself. " + holdHelp + " Editing: Control Option R. Paste previous: Control Option V."))
         for (key, title, value) in [("silence", "Silence before hands-free finishes (seconds)", prefs.silenceSeconds), ("maximum", "Maximum recording (seconds)", prefs.maximumSeconds), ("clipboard", "Clipboard recovery delay (seconds)", prefs.clipboardDelay)] {
@@ -848,6 +849,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         assign("engine", \.speechEngine, pick("engine", SpeechEngine.allCases))
         assign("pauseMedia", \.pauseMedia, values["pauseMedia"] == "1")
         assign("hold", \.holdEnabled, values["hold"] == "1")
+        assign("directHold", \.pasteUncertainOnHoldRelease, values["directHold"] == "1")
         assign("code", \.preserveCode, values["code"] == "1")
         assign("hands", \.handsFree, values["hands"] == "1")
         assign("context", \.contextEnabled, values["context"] == "1")

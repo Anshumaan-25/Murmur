@@ -22,8 +22,8 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Keydown</string>
 <key>CFBundleDisplayName</key><string>Keydown</string>
 <key>CFBundleIconFile</key><string>Keydown.icns</string>
-<key>CFBundleShortVersionString</key><string>0.2.10</string>
-<key>CFBundleVersion</key><string>12</string>
+<key>CFBundleShortVersionString</key><string>0.2.11</string>
+<key>CFBundleVersion</key><string>13</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSUIElement</key><true/>
 <key>LSMinimumSystemVersion</key><string>26.0</string>

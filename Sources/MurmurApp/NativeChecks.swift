@@ -249,6 +249,31 @@ import MurmurCore
             }
         }
         do {
+            var uncertain = SpeechEvidence()
+            uncertain.observe(start: 0, end: 0.5, confidence: 0.3)
+            uncertain.complete()
+            var failed = uncertain
+            failed.fail()
+            for (held, released, enabled, editing, practice, evidence, review, key) in [
+                (true, true, true, false, false, uncertain, false, "opted_in_hold_release_reaches_delivery"),
+                (true, true, false, false, false, uncertain, true, "default_hold_release_keeps_review"),
+                (true, false, true, false, false, uncertain, true, "held_duration_cap_keeps_review"),
+                (false, false, true, false, false, uncertain, true, "toggle_keeps_review_when_hold_opted_in"),
+                (true, true, true, true, false, uncertain, true, "edit_keeps_review_when_hold_opted_in"),
+                (true, true, true, false, true, uncertain, true, "practice_keeps_review_when_hold_opted_in"),
+                (true, true, true, false, false, failed, true, "failed_analysis_keeps_review_when_hold_opted_in"),
+            ] {
+                let controller = DictationController(ephemeral: true)
+                let session = controller.sessions.prepare()
+                _ = controller.sessions.transition(.processing, session: session)
+                let needsReview = controller.reviewIfUncertain(evidence: evidence, raw: "Fixture",
+                    identity: session, application: "fixture", duration: 0.5, frames: [], practice: practice,
+                    editing: editing, held: held, releasedHold: released, pasteUncertainOnHoldRelease: enabled)
+                results[key] = needsReview == review && controller.sessions.phase == (review ? .idle : .processing)
+                controller.setSuspended(true)
+            }
+        }
+        do {
             var events: [String] = []
             let controller = DictationController(ephemeral: true, pauseMedia: { events.append("pause"); return true }, captureStart: { events.append("capture") })
             controller.start(); await Task.yield()

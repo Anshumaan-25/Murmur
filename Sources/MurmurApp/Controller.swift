@@ -123,7 +123,7 @@ import MurmurCore
                 self.start(triggerUptime: self.hotkeys.lastTriggerUptime)
                 if [.starting, .listening].contains(self.sessions.phase) && self.sessions.id != previous { self.holdSession = self.sessions.id }
             } else {
-                if let owned = self.holdSession, owned == self.sessions.id { self.finish() }
+                if let owned = self.holdSession, owned == self.sessions.id { self.finish(releasedHold: true) }
                 self.holdSession = nil
             }
         }
@@ -356,7 +356,7 @@ import MurmurCore
             try microphone.start(maximumSeconds: maximumSeconds, onReady: onReady, onLimit: onLimit)
         }
     }
-    func finish() {
+    func finish(releasedHold: Bool = false) {
         guard !isSuspended, [.starting, .listening].contains(sessions.phase), let identity = sessions.id else { return }
         if sessions.phase == .starting && !microphone.isCapturing {
             cancel(message: "Stopped before microphone was ready"); return
@@ -404,7 +404,10 @@ import MurmurCore
                 trace.record(.decoded, session: identity)
                 recognized = result.text
                 let raw = result.text
-                if reviewIfUncertain(evidence: evidence, raw: raw, identity: identity, application: app, duration: duration, frames: frames, practice: practice, editing: editing, held: held) { return }
+                if reviewIfUncertain(evidence: evidence, raw: raw, identity: identity, application: app,
+                                     duration: duration, frames: frames, practice: practice, editing: editing,
+                                     held: held, releasedHold: releasedHold,
+                                     pasteUncertainOnHoldRelease: prefs.pasteUncertainOnHoldRelease) { return }
                 let cleaned: String
                 if editing {
                     let resources = Bundle.main.resourceURL!
@@ -466,10 +469,16 @@ import MurmurCore
             }
         }
     }
-    func reviewIfUncertain(evidence: SpeechEvidence, raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool, held: Bool = false) -> Bool {
+    func reviewIfUncertain(evidence: SpeechEvidence, raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool, held: Bool = false,
+                           releasedHold: Bool = false, pasteUncertainOnHoldRelease: Bool = false) -> Bool {
         speechDiagnostic = evidence.diagnostic(held: held && !editing)
         let eligible = held && !editing ? evidence.allowsHeldDictationDelivery : evidence.allowsAutomaticDelivery
-        guard !eligible else { return false }
+        if eligible { return false }
+        if held && releasedHold && pasteUncertainOnHoldRelease && !editing && !practice
+            && evidence.completedSuccessfully {
+            speechDiagnostic["reason"] = "accepted_on_hold_release"
+            return false
+        }
         // This gate precedes cleanup, edit interpretation and insertion. Review
         // retains raw text; no cropping or word loss is used to qualify a clip.
         retainUncertain(raw: raw, identity: identity, application: application, duration: duration, frames: frames, practice: practice, editing: editing)

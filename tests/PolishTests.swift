@@ -62,6 +62,11 @@ func polishTextChecks() {
     var mediaDisabled = Preferences(); mediaDisabled.pauseMedia = false
     let mediaRoundTrip = try? JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(mediaDisabled))
     expect(mediaRoundTrip?.pauseMedia == false, "media pause opt out survives saving")
+    expect(mediaDefaults?.pasteUncertainOnHoldRelease == false, "direct held delivery is opt-in")
+    var direct = Preferences()
+    direct.pasteUncertainOnHoldRelease = true
+    let directRoundTrip = try? JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(direct))
+    expect(directRoundTrip?.pasteUncertainOnHoldRelease == true, "direct held delivery preference survives saving")
 
     expect(SpeechEvidence().deliveryBlock(held: false) == "incomplete", "uncompleted speech diagnostic names incomplete analysis")
     var failedDiagnostic = SpeechEvidence(); failedDiagnostic.fail()

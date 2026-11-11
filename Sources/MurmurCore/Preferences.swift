@@ -9,6 +9,7 @@ public struct Preferences: Codable {
     public var language = "en-US"
     public var microphone: UInt32 = 0
     public var holdEnabled = true
+    public var pasteUncertainOnHoldRelease = false
     public var holdKey = HoldKey.globe
     public var speechEngine = SpeechEngine.automatic
     public var preserveCode = true
@@ -27,7 +28,7 @@ public struct Preferences: Codable {
     public var customSpeechExecutable = ""
     public var decoderApproval: DecoderApproval?
     public init() {}
-    enum CodingKeys: String, CodingKey { case appearance, language, microphone, holdEnabled, holdKey, speechEngine, preserveCode, dictationMode, pauseMedia, handsFree, silenceSeconds, maximumSeconds, clipboardDelay, retention, keepAudio, contextEnabled, useModel, toggleKey, customSpeechModel, customSpeechExecutable, decoderApproval }
+    enum CodingKeys: String, CodingKey { case appearance, language, microphone, holdEnabled, pasteUncertainOnHoldRelease, holdKey, speechEngine, preserveCode, dictationMode, pauseMedia, handsFree, silenceSeconds, maximumSeconds, clipboardDelay, retention, keepAudio, contextEnabled, useModel, toggleKey, customSpeechModel, customSpeechExecutable, decoderApproval }
     public init(from decoder: Decoder) throws {
         self.init()
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -35,6 +36,7 @@ public struct Preferences: Codable {
         language = try values.decodeIfPresent(String.self, forKey: .language) ?? language
         microphone = try values.decodeIfPresent(UInt32.self, forKey: .microphone) ?? microphone
         holdEnabled = try values.decodeIfPresent(Bool.self, forKey: .holdEnabled) ?? holdEnabled
+        pasteUncertainOnHoldRelease = (try? values.decodeIfPresent(Bool.self, forKey: .pasteUncertainOnHoldRelease)) ?? pasteUncertainOnHoldRelease
         holdKey = (try? values.decodeIfPresent(HoldKey.self, forKey: .holdKey)) ?? holdKey
         speechEngine = (try? values.decodeIfPresent(SpeechEngine.self, forKey: .speechEngine)) ?? speechEngine
         preserveCode = try values.decodeIfPresent(Bool.self, forKey: .preserveCode) ?? preserveCode

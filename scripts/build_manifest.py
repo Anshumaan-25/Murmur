@@ -32,7 +32,7 @@ def manifest(root, resources):
             for block in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(block)
         assets[name] = digest.hexdigest()
-    return {"version": "0.2.10", "revision": revision.stdout.strip() if revision.returncode == 0 else "unknown",
+    return {"version": "0.2.11", "revision": revision.stdout.strip() if revision.returncode == 0 else "unknown",
             "source_sha256": source_identity(root), "rules": "cleanup-8", "speech_protocol": 1 if "speech-protocol.json" in assets else 0,
             "assets": assets}
 

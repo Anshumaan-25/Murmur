@@ -13,6 +13,7 @@ public struct SpeechEvidence: Sendable {
     private var failed = false
     private var completed = false
     public init() {}
+    public var completedSuccessfully: Bool { completed && !failed }
     public var heardSpeech: Bool { !failed && lastSpeechEnd != nil }
     public var silence: Double { heardSpeech ? max(0, analyzedThrough - max(lastSpeechEnd ?? 0, lastUncertainEnd)) : 0 }
     private var duration: Double { completed ? completedDuration : analyzedThrough }
