@@ -212,6 +212,19 @@ func mixedAudioEvidenceChecks() {
     expect(!failedHeld.allowsHeldDictationDelivery, "failed analysis cannot authorize held dictation")
     let repeatedBursts = (0..<20).flatMap { _ in [0.95, 0.95] + Array(repeating: 0.4, count: 9) }
     expect(!evidence(repeatedBursts).allowsAutomaticDelivery, "short positive bursts cannot authorize a mostly uncertain clip")
+    expect(!evidence(repeatedBursts).allowsHeldDictationDelivery,
+           "push-to-dictate still rejects mostly uncertain audio")
+    // Observed push-to-dictate regression: 13 seconds with five qualified
+    // seconds spread across the clip and no gap longer than three seconds.
+    let pacedSpeech = Array(repeating: 0.9, count: 6)
+    let pause = Array(repeating: 0.2, count: 11)
+    let paced = pacedSpeech + pause + pacedSpeech + pause
+        + Array(repeating: 0.9, count: 5) + Array(repeating: 0.2, count: 12)
+    expect(evidence(paced).allowsHeldDictationDelivery, "explicit hold permits distributed speech with ordinary pauses")
+    expect(!evidence(paced).allowsAutomaticDelivery, "toggle and editing keep the stricter pause allowance")
+    expect(!evidence(paced + [0.2]).allowsHeldDictationDelivery, "a longer final gap still blocks held delivery")
+    let sparse = Array(repeating: 0.2, count: 2) + Array(paced.dropFirst(2))
+    expect(!evidence(sparse).allowsHeldDictationDelivery, "too little total speech still blocks held delivery")
     expect(evidence(speech + Array(repeating: 0.2, count: 6)).allowsAutomaticDelivery, "ordinary trailing pause keeps normal speech automatic")
     expect(evidence(speech + Array(repeating: 0.2, count: 6) + speech).allowsAutomaticDelivery, "ordinary internal pause keeps sustained speech automatic")
     expect(!evidence(speech + Array(repeating: 0.2, count: 20)).allowsAutomaticDelivery, "long held silent pause needs review too")

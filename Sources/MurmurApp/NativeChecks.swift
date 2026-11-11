@@ -289,6 +289,7 @@ import MurmurCore
             let policy = NSApp.activationPolicy()
             controller.retainUncertain(raw: "Synthetic uncertain instruction", identity: session, application: "fixture", duration: 2, frames: [], practice: false, editing: true)
             results["uncertain_speech_is_retained_without_automatic_delivery"] = !delivered && controller.lastText == "Synthetic uncertain instruction" && controller.sessions.phase == .idle
+            results["uncertain_speech_can_show_menu_bar_recovery"] = controller.lastDictationNeedsSpeechReview
             results["uncertain_speech_does_not_open_review_or_show_popup"] =
                 NSApp.windows.filter { $0.isVisible } == windows && NSApp.activationPolicy() == policy && !controller.indicator.panel.isVisible
             controller.setSuspended(true)

@@ -30,7 +30,12 @@ public struct SpeechEvidence: Sendable {
         let coverage = useHeld ? held : standard
         if !coverage.sustained { return "no_sustained_speech" }
         if coverage.longestGap(through: duration) > 3 { return "long_unqualified_gap" }
-        if max(0, duration - coverage.seconds) > coverage.seconds + 2 { return "insufficient_coverage" }
+        // A physical hold can include more pauses between phrases. It still
+        // requires sustained speech and the same maximum gap throughout the clip.
+        let pauseAllowance = useHeld ? 3.0 : 2.0
+        if max(0, duration - coverage.seconds) > coverage.seconds + pauseAllowance {
+            return "insufficient_coverage"
+        }
         return "ready"
     }
 

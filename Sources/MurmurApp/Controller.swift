@@ -16,6 +16,7 @@ import MurmurCore
     private let appIsActive: () -> Bool
     private(set) var mediaPauseStatus = "not_requested"
     private(set) var speechDiagnostic: [String: Any] = [:]
+    private(set) var lastDictationNeedsSpeechReview = false
     let hotkeys: Hotkeys
     let inserter: ClipboardInserter
     var destination: Destination?
@@ -166,6 +167,7 @@ import MurmurCore
             pastingHistoryID = nil
         }
         lastText = ""; lastRaw = ""; lastOutcome = ""
+        lastDictationNeedsSpeechReview = false
         reviewWindow?.clear(); reviewWindow?.close()
         lastHistoryID = nil
         received?("")
@@ -251,6 +253,7 @@ import MurmurCore
         stopWork()
         commandMode = command
         speechDiagnostic = [:]
+        lastDictationNeedsSpeechReview = false
         let identity = sessions.prepare(); began = ProcessInfo.processInfo.systemUptime
         trace.record(.starting, session: identity); drawingSession = nil; lastSignal = nil; listeningFeedback = ListeningFeedback(); indicator.preferredPoint = nil
         indicator.didDraw = { [weak self] in
@@ -482,6 +485,7 @@ import MurmurCore
         if practice {
             practiceWindow?.update(raw: raw, cleaned: raw, outcome: message)
         } else {
+            lastDictationNeedsSpeechReview = true
             lastRaw = raw; lastText = raw; lastOutcome = message; lastHistoryID = nil
             reviewWindow?.clear()
             let record = Utterance(id: identity, application: application, duration: duration, raw: raw, cleaned: raw, inserted: "", outcome: message, latency: 0)
