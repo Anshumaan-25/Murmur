@@ -118,6 +118,21 @@ public enum EditingCommand {
         switch command {
         case "uppercase", "all caps", "make this uppercase", "make it uppercase": return selected.uppercased()
         case "lowercase", "make this lowercase", "make it lowercase": return selected.lowercased()
+        case "title case", "make it title case", "make this title case", "capitalize this", "capitalize each word":
+            return replace(selected, #"\S*(?:://|@)\S*|"# + CodeIdentifier.wordPattern + #"(?:['’]"# + CodeIdentifier.wordPattern + #")*"#) { match in
+                let word = match[0]
+                guard !word.contains("://"), !word.contains("@"), !CodeIdentifier.looksLikeIdentifier(word[...]),
+                      let first = word.first else { return word }
+                return first.uppercased() + word.dropFirst()
+            }
+        case "bullet list", "make it a bullet list", "make this a bullet list", "bullet points":
+            return try list(selected, numbered: false)
+        case "numbered list", "make it a numbered list", "make this a numbered list", "number this list":
+            return try list(selected, numbered: true)
+        case "trim whitespace", "trim the whitespace":
+            let trimmed = selected.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { throw MurmurError.empty }
+            return trimmed
         case "shorten", "shorten this", "make this shorter", "make it shorter":
             var result = replace(selected, #"^I wanted to let you know that ([a-z])"#) { $0[1].uppercased() }
             for (phrase, replacement) in [("in order to", "to"), ("at this point in time", "now"), ("due to the fact that", "because"), ("really ", "")] {
@@ -136,6 +151,26 @@ public enum EditingCommand {
             return replace(selected, #"\bregarding\b"#) { $0[0].first?.isUppercase == true ? "About" : "about" }
         default: throw MurmurError.unsupportedCommand
         }
+    }
+
+    private static func list(_ text: String, numbered: Bool) throws -> String {
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        let entries = lines.filter { !$0.isEmpty }
+        guard !entries.isEmpty else { throw MurmurError.empty }
+
+        // Only remove number prefixes when the selected lines form an existing list.
+        let alreadyNumbered = entries.enumerated().allSatisfy { index, entry in
+            entry.range(of: #"^\#(index + 1)[.)][ \t]+\S"#, options: .regularExpression) != nil
+        }
+        let marker = alreadyNumbered ? #"^\d+[.)][ \t]+"# : #"^[-*•][ \t]+"#
+        var number = 0
+        return lines.map { line in
+            guard !line.isEmpty else { return "" }
+            let entry = line.replacingOccurrences(of: marker, with: "", options: .regularExpression)
+            number += 1
+            return (numbered ? "\(number). " : "- ") + entry
+        }.joined(separator: "\n")
     }
 
     private static func replace(_ text: String, _ pattern: String, using replacement: ([String]) -> String) -> String {

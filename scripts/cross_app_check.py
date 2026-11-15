@@ -55,10 +55,19 @@ def main():
         focus_cases = {'native': 'ready', 'web': 'ready', 'opaque': 'unreadable',
                        'disabled': 'unreadable', 'protected': 'protectedField',
                        'stale-window': 'unreadable'}
-        for mode in focus_cases if args.focus_only else ['native', 'web', 'opaque', 'opaque-moved']:
+        web_flags = {'web': [], 'web-empty': ['--empty'], 'web-selected': ['--selected'],
+                     'web-rich': ['--rich'], 'web-paste-only': ['--rich', '--paste-only']}
+        for mode in focus_cases if args.focus_only else ['native', *web_flags, 'native-moved', 'opaque']:
             state = pathlib.Path(directory) / (mode + '-target.json')
             report = pathlib.Path(directory) / (mode + '-delivery.json')
-            target_flags = [] if mode == 'native' else ['--' + mode.removesuffix('-moved')]
+            target_kind = mode.removesuffix('-moved')
+            if mode in web_flags:
+                target_flags = ['--web', *web_flags[mode]]
+            else:
+                target_flags = [] if target_kind == 'native' else ['--' + target_kind]
+            focus_switch = pathlib.Path(directory) / 'switch-focus' if mode == 'native-moved' else None
+            if focus_switch:
+                target_flags += ['--switch-focus', str(focus_switch)]
             target = subprocess.Popen([str(binary), str(state)] + target_flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
                 read_when_ready(state)
@@ -67,25 +76,35 @@ def main():
                     results[mode] = check_focus(args.focus_only, focus_cases[mode])
                     continue
                 text = 'Keydown insertion check 世界.'
-                subprocess.run(['open', '-g', '-n', str(APP), '--args', '--fixture-insert', str(target.pid), str(report)] + (['--move-fixture-cursor'] if mode == 'opaque-moved' else []), check=True)
+                prefix = {'web-empty': '', 'web-rich': 'Prefix: draft.', 'web-paste-only': 'Prefix: draft.'}.get(mode, 'Prefix: ')
+                expected_text = prefix + text
+                subprocess.run(['open', '-g', '-n', str(APP), '--args', '--fixture-insert', str(target.pid), str(report)] + ([str(focus_switch)] if focus_switch else []), check=True)
                 result = read_when_ready(report)
                 if result.get('target_app') != TARGET_ID:
                     print(mode + ': ' + result.get('error', 'Owned fixture was not focused.'))
                     return 2
                 deadline = time.monotonic() + 3
-                while not mode.startswith('opaque') and time.monotonic() < deadline and json.loads(state.read_text())['text'] != 'Prefix: ' + text:
+                while result.get('outcome') == 'inserted' and time.monotonic() < deadline and json.loads(state.read_text())['text'] != expected_text:
                     time.sleep(0.05)
                 if mode == 'native':
                     while time.monotonic() < deadline and 'undo_restored' not in json.loads(state.read_text()):
                         time.sleep(0.05)
                 target_state = json.loads(state.read_text())
-                result['destination_text_matches'] = target_state['text'] == 'Prefix: ' + text
+                result['destination_text_matches'] = target_state['text'] == expected_text
                 if mode == 'native':
                     result['undo_restored'] = target_state.get('undo_restored', False)
                     result['redo_restored'] = target_state.get('redo_restored', False)
-                result['passed'] = result.get('outcome') == 'queued' and result['destination_text_matches'] and (mode not in ['native', 'opaque'] or (result['undo_restored'] and result['redo_restored']))
-                if mode.startswith('opaque'):
+                result['passed'] = result.get('outcome') == 'inserted' and result['destination_text_matches'] and (mode != 'native' or (result['undo_restored'] and result['redo_restored']))
+                if mode == 'opaque' or focus_switch:
                     result['passed'] = result.get('outcome') == 'available' and target_state['text'] == 'Prefix: '
+                    if focus_switch:
+                        result['passed'] = result['passed'] and result.get('delivery', {}).get('reason') == 'targetChanged' and target_state.get('other_text') == 'Unchanged second field'
+                elif mode in ('web-rich', 'web-paste-only'):
+                    result['formatting_preserved'] = target_state.get('formatting_preserved', False)
+                    result['passed'] = result['passed'] and result['formatting_preserved']
+                    if mode == 'web-paste-only':
+                        result['received_paste'] = target_state.get('received_paste', False)
+                        result['passed'] = result['passed'] and result['received_paste']
                 results[mode] = result
             finally:
                 target.terminate()

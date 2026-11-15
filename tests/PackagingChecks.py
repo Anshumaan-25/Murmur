@@ -65,43 +65,55 @@ class PackagingChecks(unittest.TestCase):
                     stage_engines.build("speech", root)
 
     def test_signing_bootstrap_removes_exports_on_success_and_failure(self):
-        root = Path(__file__).resolve().parents[1]
+        import project_signing as signing
+
         for fail_import in (False, True):
             with self.subTest(fail_import=fail_import), tempfile.TemporaryDirectory() as directory:
-                sandbox = Path(directory)
-                scripts = sandbox / "scripts"
-                scripts.mkdir()
-                shutil.copyfile(root / "scripts/create_signing_identity.sh", scripts / "create_signing_identity.sh")
-                temp = sandbox / "temp"
-                temp.mkdir()
-                openssl = scripts / "openssl"
-                openssl.write_text("""#!/bin/bash
-if [ "$1" = rand ]; then printf '%s\\n' fixture; exit; fi
-while [ "$#" -gt 1 ]; do
-    case "$1" in -out|-keyout) printf '%s\\n' synthetic > "$2"; shift;; esac
-    shift
-done
-""")
-                security = scripts / "security"
-                security.write_text("""#!/bin/bash
-case "$1" in
-    create-keychain) touch "$4";;
-    import)
-        test "$9" = -x || exit 2
-        if [ "$KEYDOWN_FIXTURE_FAIL_IMPORT" = 1 ]; then exit 3; fi;;
-    delete-keychain) unlink "$2";;
-esac
-""")
-                openssl.chmod(0o700)
-                security.chmod(0o700)
-                env = {**os.environ, "PATH": f"{scripts}:/usr/bin:/bin", "TMPDIR": str(temp),
-                       "KEYDOWN_SIGNING_PASSWORD": "fixture-only", "KEYDOWN_FIXTURE_FAIL_IMPORT": str(int(fail_import))}
-                result = subprocess.run(["/bin/bash", scripts / "create_signing_identity.sh"],
-                                        env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 3 if fail_import else 0, result.stderr)
-                self.assertFalse(list(temp.iterdir()))
-                expected = [] if fail_import else ["signing.keychain-db"]
-                self.assertEqual(sorted(path.name for path in (sandbox / ".local").iterdir()), expected)
+                local = Path(directory) / ".local"
+                store = local / "code-signing"
+                keychain = store / "Keydown.keychain-db"
+                pin = store / "certificate.sha1"
+                temp_paths = []
+                credentials = {}
+
+                def security(command, *args):
+                    if command == "create-keychain":
+                        keychain.touch()
+                    elif command == "import" and fail_import:
+                        raise signing.SigningError("test import failure")
+                    elif command == "delete-keychain":
+                        keychain.unlink()
+                    elif command == "add-generic-password":
+                        credentials["password"] = args[5]
+                    return b""
+
+                def run(args, **kwargs):
+                    if "pkcs12" in args:
+                        temp_paths.append(args[args.index("-out") + 1].parent)
+                    return b""
+
+                with patch.multiple(signing, LOCAL=local, LEGACY=local / "signing.keychain-db",
+                                    STORE=store, KEYCHAIN=keychain, PIN=pin), \
+                     patch.object(signing, "security", side_effect=security), \
+                     patch.object(signing, "run", side_effect=run), \
+                     patch.object(signing, "login_keychain", return_value=Path("login.keychain-db")), \
+                     patch.object(signing, "require_unlocked_login"), \
+                     patch.object(signing, "certificate_fingerprint", return_value="A" * 40), \
+                     patch.object(signing, "keychain_certificate"), \
+                     patch.object(signing, "signing_probe"):
+                    if fail_import:
+                        with self.assertRaisesRegex(signing.SigningError, "test import failure"):
+                            signing.configure(False)
+                        self.assertFalse(store.exists())
+                        self.assertFalse(credentials)
+                    else:
+                        signing.configure(False)
+                        self.assertEqual(pin.read_text().strip(), "A" * 40)
+                        self.assertRegex(credentials["password"], r"^[a-f0-9]{64}$")
+                        self.assertEqual(sorted(p.name for p in store.iterdir()),
+                                         ["Keydown.keychain-db", "certificate.sha1", "credential-account"])
+                self.assertTrue(temp_paths)
+                self.assertTrue(all(not path.exists() for path in temp_paths))
 
     def test_signed_bundle_replacement_and_rollback(self):
         with tempfile.TemporaryDirectory() as directory:

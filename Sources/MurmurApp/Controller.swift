@@ -16,10 +16,12 @@ import MurmurCore
     private let appIsActive: () -> Bool
     private(set) var mediaPauseStatus = "not_requested"
     private(set) var speechDiagnostic: [String: Any] = [:]
-    private(set) var lastDictationNeedsSpeechReview = false
+    private(set) var lastDictationNotice: String?
     let hotkeys: Hotkeys
-    let inserter: ClipboardInserter
+    let inserter = TextInserter()
+    private let fixtureClipboard: ClipboardDelivery?
     var destination: Destination?
+    private var destinationResolution: Task<Destination, Never>?
     var focusContinuity: FocusContinuity?
     var preferences: Preferences
     var history: HistoryStore?
@@ -62,9 +64,15 @@ import MurmurCore
     func announce(_ text: String) {
         let phase = sessions.phase
         if phase == .starting || phase == .listening { indicator.show(text, phase: phase) }
-        else if indicator.panel.isVisible { indicator.hide() }
+        else { indicator.hide() }
         status?(text)
         phaseChanged?(phase)
+    }
+    private func reportDictationOutcome(_ message: String, canCopy: Bool = false) {
+        lastDictationNotice = message
+        announce(message)
+        let copy: (() -> Void)? = canCopy ? { [weak self] in self?.copyLast(showConfirmation: true) } : nil
+        indicator.show(message, phase: sessions.phase, copyResult: copy, duration: canCopy ? 10 : 5)
     }
     var provider: any SpeechProvider {
         if preferences.speechEngine == .systemAnalyzer { return SystemSpeechProvider() }
@@ -94,7 +102,7 @@ import MurmurCore
         self.appIsActive = (ephemeral ? appIsActive : nil) ?? { NSApp.isActive }
         fixtureRetentionCleanup = ephemeral ? retentionCleanup : nil
         hotkeys = Hotkeys(suspended: ephemeral)
-        inserter = ClipboardInserter(clipboard: ephemeral ? clipboard : nil)
+        fixtureClipboard = ephemeral ? clipboard : nil
         indicator = Indicator(defaults: ephemeral ? nil : .standard)
         pauseMediaRequest = pauseMedia ?? (ephemeral ? { true } : { SystemMediaPause.shared.pause() })
         captureStartOverride = ephemeral ? captureStart : nil
@@ -163,11 +171,11 @@ import MurmurCore
         guard id == lastHistoryID else { return }
         if pastingHistoryID == id {
             activeTask?.cancel()
-            inserter.finishRestoration()
             pastingHistoryID = nil
         }
         lastText = ""; lastRaw = ""; lastOutcome = ""
-        lastDictationNeedsSpeechReview = false
+        lastDictationNotice = nil
+        indicator.hide()
         reviewWindow?.clear(); reviewWindow?.close()
         lastHistoryID = nil
         received?("")
@@ -253,7 +261,7 @@ import MurmurCore
         stopWork()
         commandMode = command
         speechDiagnostic = [:]
-        lastDictationNeedsSpeechReview = false
+        lastDictationNotice = nil
         let identity = sessions.prepare(); began = ProcessInfo.processInfo.systemUptime
         trace.record(.starting, session: identity); drawingSession = nil; lastSignal = nil; listeningFeedback = ListeningFeedback(); indicator.preferredPoint = nil
         indicator.didDraw = { [weak self] in
@@ -285,13 +293,18 @@ import MurmurCore
                 guard captureAuthorized() else {
                     throw MurmurError.unavailable("Enable Keydown microphone access in System Settings.")
                 }
-                let resolved = await target.resolveEditor(continuity: focusContinuity)
-                guard !Task.isCancelled, sessions.id == identity, sessions.phase == .starting else { return }
-                guard !resolved.protected else { throw MurmurError.protectedTarget }
-                if command && (!resolved.editable || resolved.selectedText.isEmpty || resolved.selection == nil) {
-                    throw MurmurError.unavailable("Select text before starting an editing command.")
+                if command {
+                    let resolved = await target.resolveEditor(continuity: focusContinuity)
+                    guard !Task.isCancelled, sessions.id == identity, sessions.phase == .starting else { return }
+                    guard !resolved.protected else { throw MurmurError.protectedTarget }
+                    guard resolved.editable, !resolved.selectedText.isEmpty, resolved.selection != nil else {
+                        throw MurmurError.unavailable("Select text before starting an editing command.")
+                    }
+                    destination = resolved
+                } else if !target.editable, let continuity = focusContinuity {
+                    // Let the accessibility tree warm up while the microphone starts.
+                    destinationResolution = Task { await target.resolveEditor(continuity: continuity) }
                 }
-                destination = resolved
                 mediaPauseStatus = "disabled"
                 if pausePlayback {
                     let sent = pauseMediaRequest()
@@ -315,7 +328,9 @@ import MurmurCore
                         let meter = self.microphone.meter()
                         let now = ProcessInfo.processInfo.systemUptime
                         if (!meter.received && now - self.began > 3) || (meter.received && now - meter.lastBuffer > 2) {
-                            self.cancel(message: "Microphone stopped sending audio. Check the input device."); return
+                            self.stopWork()
+                            self.reportDictationOutcome("Microphone stopped sending audio. Check the input device.")
+                            return
                         }
                         if self.sessions.phase == .listening && !self.commandMode {
                             let signal = self.listeningFeedback.update(meter.signal, at: now)
@@ -339,10 +354,13 @@ import MurmurCore
                 RunLoop.main.add(timer, forMode: .common)
             } catch {
                 guard !Task.isCancelled, sessions.id == identity else { return }
+                destinationResolution?.cancel()
+                destinationResolution = nil
                 focusContinuity?.stop()
                 endDictationActivity()
                 _ = sessions.transition(.failed, session: identity)
-                announce(error.localizedDescription)
+                trace.record(.failed, session: identity)
+                reportDictationOutcome(error.localizedDescription)
                 hotkeys.escape(false)
             }
         }
@@ -359,7 +377,9 @@ import MurmurCore
     func finish(releasedHold: Bool = false) {
         guard !isSuspended, [.starting, .listening].contains(sessions.phase), let identity = sessions.id else { return }
         if sessions.phase == .starting && !microphone.isCapturing {
-            cancel(message: "Stopped before microphone was ready"); return
+            stopWork()
+            reportDictationOutcome("Microphone was still starting. Wait for Listening before speaking.")
+            return
         }
         indicator.hide()
         let held = holdSession == identity
@@ -369,18 +389,21 @@ import MurmurCore
         let capture = microphone.stop()
         let frames = AudioTools.trimmed(capture.frames); _ = sessions.transition(.processing, session: identity)
         let released = Date(); let releasedUptime = ProcessInfo.processInfo.systemUptime; let initialTarget = destination; let continuity = focusContinuity; let editing = commandMode; let prefs = preferences; let practice = practicing
+        let resolution = destinationResolution
+        destinationResolution = nil
         trace.record(.processing, session: identity)
         announce("Recognizing locally…")
         let selected = provider
         activeTask = Task {
             defer {
+                resolution?.cancel()
                 capture.speech?.cancel()
                 continuity?.stop()
                 if sessions.id == identity { endDictationActivity() }
             }
             var recognized = ""; var prepared = ""; var app = initialTarget?.bundle ?? ""
             do {
-                let target = initialTarget
+                let target = await resolution?.value ?? initialTarget
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }
                 guard target?.protected != true else { throw MurmurError.protectedTarget }
                 if editing && (target?.selectedText.isEmpty ?? true) { throw MurmurError.unavailable("Select text before starting an editing command.") }
@@ -393,6 +416,7 @@ import MurmurCore
                 let styles = (try? history?.values(table: "app_styles")) ?? [:]
                 app = target?.bundle ?? ""
                 let context = TextContext(application: app, preserveCode: prefs.preserveCode, style: WritingStyle(rawValue: styles[app] ?? "neutral") ?? .neutral, dictionary: vocabulary, expansions: expansions, selected: prefs.contextEnabled ? target?.selectedText ?? "" : "", surrounding: prefs.contextEnabled ? String((target?.value ?? "").prefix(3000)) : "", mode: prefs.dictationMode)
+                guard !capture.frames.isEmpty else { throw MurmurError.invalidAudio }
                 guard !frames.isEmpty else { throw MurmurError.empty }
                 let evidence: SpeechEvidence
                 if let monitor = capture.speech {
@@ -441,18 +465,28 @@ import MurmurCore
                     announce("Practice result ready in the practice window")
                     return
                 }
-                var outcome = ClipboardInserter.Outcome.available
-                if let target { outcome = try await inserter.insert(cleaned, destination: target, delay: prefs.clipboardDelay, requireSelection: editing, continuity: continuity) }
+                let outcome: TextInserter.Outcome
+                if let target {
+                    outcome = try await inserter.insert(cleaned, destination: target, requireSelection: editing,
+                                                        continuity: continuity, clipboardDelay: prefs.clipboardDelay)
+                } else {
+                    outcome = .available
+                }
                 guard sessions.accepts(identity) else { return }
-                trace.record(outcome == .queued ? .queued : .available, session: identity)
-                lastText = cleaned; lastRaw = raw; lastOutcome = outcome.rawValue; lastHistoryID = nil; received?(cleaned)
+                let reason = target == nil ? .unreadable : inserter.lastReason
+                let deliveryStatus = outcome == .available ? "available: " + reason.rawValue : outcome.rawValue
+                trace.record(outcome == .inserted ? .inserted : outcome == .unconfirmed ? .insertionUnconfirmed : .available, session: identity)
+                lastText = cleaned; lastRaw = raw; lastOutcome = reason.explanation; lastHistoryID = nil; received?(cleaned)
                 reviewWindow?.clear()
-                if outcome == .queued { measurements.insertion(released: releasedUptime, finished: ProcessInfo.processInfo.systemUptime) }
-                let record = Utterance(id: identity, application: app, duration: duration, raw: result.text, cleaned: cleaned, inserted: "", outcome: outcome == .queued ? outcome.rawValue : "available: " + inserter.lastReason.rawValue, latency: Date().timeIntervalSince(released))
-                var message = inserter.lastReason.explanation
+                if outcome == .inserted { measurements.insertion(released: releasedUptime, finished: ProcessInfo.processInfo.systemUptime) }
+                let record = Utterance(id: identity, application: app, duration: duration, raw: result.text, cleaned: cleaned, inserted: outcome == .inserted ? cleaned : "", outcome: deliveryStatus, latency: Date().timeIntervalSince(released))
+                var message = reason.explanation
                 do { try persist(record, frames: frames, previous: true) }
                 catch { message += " · Some local data could not be saved." }
-                _ = sessions.transition(.idle, session: identity); announce(message); hotkeys.escape(false); changed?()
+                _ = sessions.transition(.idle, session: identity)
+                if outcome == .inserted { announce(message) }
+                else { reportDictationOutcome(message, canCopy: true) }
+                hotkeys.escape(false); changed?()
             } catch {
                 guard sessions.accepts(identity) else { return }
                 var message = error.localizedDescription
@@ -465,7 +499,10 @@ import MurmurCore
                     catch { message += " · History could not be saved." }
                     changed?()
                 }
-                _ = sessions.transition(.failed, session: identity); announce(message); hotkeys.escape(false)
+                _ = sessions.transition(.failed, session: identity)
+                trace.record(.failed, session: identity)
+                reportDictationOutcome(message, canCopy: !recognized.isEmpty && !practice)
+                hotkeys.escape(false)
             }
         }
     }
@@ -494,21 +531,21 @@ import MurmurCore
         if practice {
             practiceWindow?.update(raw: raw, cleaned: raw, outcome: message)
         } else {
-            lastDictationNeedsSpeechReview = true
             lastRaw = raw; lastText = raw; lastOutcome = message; lastHistoryID = nil
             reviewWindow?.clear()
             let record = Utterance(id: identity, application: application, duration: duration, raw: raw, cleaned: raw, inserted: "", outcome: message, latency: 0)
             do { try persist(record, frames: frames, previous: true) }
             catch { message += " · History could not be saved." }
         }
-        announce(message); changed?()
+        if practice { announce(message) }
+        else { reportDictationOutcome(message, canCopy: true) }
+        changed?()
     }
     func pasteLast() {
         intent = UUID()
         guard !isSuspended, !preparingToQuit, !hasFocusedLocalDialog, !lastText.isEmpty, sessions.canStart else { return }
         activeTask?.cancel()
         focusContinuity?.stop()
-        inserter.finishRestoration()
         let continuity = FocusContinuity(pid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0, toggleKey: UInt16(clamping: preferences.toggleKey), holdKey: preferences.holdEnabled ? UInt16(preferences.holdKey.code) : nil)
         focusContinuity = continuity
         let target = Destination.capture()
@@ -524,9 +561,11 @@ import MurmurCore
                 try Task.checkCancellation()
                 let resolved = await target.resolveEditor(continuity: continuity)
                 try Task.checkCancellation()
-                _ = try await inserter.insert(text, destination: resolved, delay: preferences.clipboardDelay, continuity: continuity)
+                let outcome = try await inserter.insert(text, destination: resolved, continuity: continuity,
+                                                        clipboardDelay: preferences.clipboardDelay)
                 try Task.checkCancellation()
-                announce(inserter.lastReason.explanation)
+                if outcome == .inserted { announce(inserter.lastReason.explanation) }
+                else { reportDictationOutcome(inserter.lastReason.explanation, canCopy: true) }
             } catch {
                 if !Task.isCancelled { announce(error.localizedDescription) }
             }
@@ -576,12 +615,17 @@ import MurmurCore
         suggestionWindow?.present()
     }
 
-    func copyLast() {
+    func copyLast(board: NSPasteboard = .general, showConfirmation: Bool = false) {
         intent = UUID()
         guard !isSuspended, !preparingToQuit, !hasLocalDialog, !lastText.isEmpty else { return }
-        inserter.finishRestoration()
-        NSPasteboard.general.clearContents()
-        if NSPasteboard.general.setString(lastText, forType: .string) { announce("Copied previous text") }
+        board.clearContents()
+        if board.setString(lastText, forType: .string) {
+            lastDictationNotice = nil
+            announce("Copied previous text")
+            if showConfirmation { indicator.show("Copied previous text", phase: .idle) }
+        } else {
+            reportDictationOutcome("Could not copy this text. Try Copy Text again.", canCopy: true)
+        }
     }
 
     func setSuspended(_ suspended: Bool) {
@@ -592,12 +636,11 @@ import MurmurCore
             trace.record(.suspended, session: sessions.id)
             hotkeys.suspend()
             stopWork()
-            indicator.hide()
             status?("Dictation paused"); phaseChanged?(.idle)
         } else {
             sessions.reset()
             trace.record(.resumed, session: nil)
-            indicator.hide(); indicator.preferredPoint = nil
+            indicator.prepareAfterWake()
             if !ephemeral { hotkeys.resume() }
             status?("Ready · \(shortcutTitle)")
             runRetention()
@@ -624,11 +667,14 @@ import MurmurCore
         timer = nil
         activeTask?.cancel()
         activeTask = nil
+        destinationResolution?.cancel()
+        destinationResolution = nil
         destination = nil
         focusContinuity?.stop()
         focusContinuity = nil
         microphone.cancel()
-        inserter.finishRestoration()
+        inserter.finish()
+        fixtureClipboard?.finish()
         hotkeys.escape(false)
         endDictationActivity()
     }

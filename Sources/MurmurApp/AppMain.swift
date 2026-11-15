@@ -12,7 +12,7 @@ import MurmurCore
     private var backgroundLifecycle: BackgroundLifecycle?
     private var openedByLaunchServices = false
     private var launchedAtLogin = false
-    private let speechReviewNotice = NSMenuItem(title: "Speech uncertain · use Copy Previous Text", action: nil, keyEquivalent: "")
+    private let dictationNotice = NSMenuItem(title: "", action: nil, keyEquivalent: "")
 
     init(controller: DictationController? = nil) {
         self.controller = controller ?? DictationController()
@@ -39,8 +39,8 @@ import MurmurCore
         item.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Keydown")
         let menu = NSMenu()
         menu.delegate = self
-        speechReviewNotice.isHidden = true
-        menu.addItem(speechReviewNotice)
+        dictationNotice.isHidden = true
+        menu.addItem(dictationNotice)
         for (title, action, key) in [("Start / stop dictation", #selector(dictate), ""), ("Edit selected text", #selector(edit), ""), ("Paste previous text", #selector(previous), ""), ("Copy Previous Text", #selector(copyPrevious), ""), ("Review Previous Text", #selector(reviewPrevious), ""), ("Practice Dictation", #selector(practice), ""), ("Review Suggested Edit", #selector(reviewSuggestion), ""), ("Open Keydown", #selector(showHub), ""), ("Settings…", #selector(showSettings), ""), ("Quit Keydown", #selector(quit), "")] {
             let entry = NSMenuItem(title: title, action: action, keyEquivalent: key); entry.target = self; menu.addItem(entry)
         }
@@ -124,7 +124,8 @@ import MurmurCore
     }
     func menuWillOpen(_ menu: NSMenu) {
         controller.hotkeys.refresh()
-        speechReviewNotice.isHidden = !controller.lastDictationNeedsSpeechReview
+        dictationNotice.title = controller.lastDictationNotice ?? ""
+        dictationNotice.isHidden = controller.lastDictationNotice == nil
         if let action = menu.items.first(where: { $0.action == #selector(dictate) }) {
             action.title = [.starting, .listening].contains(controller.sessions.phase) ? "Stop Dictation" : "Start Dictation"
         }

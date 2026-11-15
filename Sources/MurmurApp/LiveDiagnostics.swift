@@ -40,7 +40,11 @@ import MurmurCore
         let before = Destination.focusDiagnostics()
         let resolved = await original.resolveEditor(continuity: continuity)
         let current = Destination.capture()
-        let reason = resolved.reason(comparedTo: current, focusChanged: continuity.pid != original.pid || continuity.invalidated)
+        var reason = resolved.reason(comparedTo: current, focusChanged: continuity.pid != original.pid || continuity.invalidated)
+        if reason == .ready && (resolved.evidence.replacingSelection(with: "") == nil ||
+            current.evidence.replacingSelection(with: "") == nil || !current.hasWritableSelection) {
+            reason = .insertionUnsupported
+        }
         publish(controller: controller, focus: ["original":original.diagnostic, "resolved":resolved.diagnostic, "current":current.diagnostic, "before":before, "after":Destination.focusDiagnostics(), "reason":reason.rawValue, "focus_tracking_available":continuity.available, "focus_unchanged":!continuity.invalidated, "posted_input":false])
     }
     static func read(inspectFocus: Bool = false) -> [String: Any] {

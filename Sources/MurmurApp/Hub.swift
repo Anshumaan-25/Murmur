@@ -568,7 +568,7 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         body.addArrangedSubview(label("With paste on hold release enabled, background noise may occasionally produce unwanted words. Keydown still checks the destination before pasting."))
         let holdHelp = prefs.holdKey == .globe ? "Set Keyboard → Press globe key → Do Nothing to avoid the emoji picker." : "Your chosen hold key is passed through to the app you are using."
         body.addArrangedSubview(label("Hold your chosen key by itself. " + holdHelp + " Editing: Control Option R. Paste previous: Control Option V."))
-        for (key, title, value) in [("silence", "Silence before hands-free finishes (seconds)", prefs.silenceSeconds), ("maximum", "Maximum recording (seconds)", prefs.maximumSeconds), ("clipboard", "Clipboard recovery delay (seconds)", prefs.clipboardDelay)] {
+        for (key, title, value) in [("silence", "Silence before hands-free finishes (seconds)", prefs.silenceSeconds), ("maximum", "Maximum recording (seconds)", prefs.maximumSeconds)] {
             let input = NSTextField(string: String(value)); input.setAccessibilityLabel(title); input.widthAnchor.constraint(equalToConstant: 80).isActive = true; fields[key] = input; body.addArrangedSubview(row([label(title), input]))
         }
         let modelCleanup = NSButton(checkboxWithTitle: "Use validated on-device punctuation cleanup", target: nil, action: nil)
@@ -862,7 +862,6 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         }
         if values["silence"] != baseline["silence"] { preferences.silenceSeconds = try number("silence", 0.5...10) }
         if values["maximum"] != baseline["maximum"] { preferences.maximumSeconds = try number("maximum", 5...600) }
-        if values["clipboard"] != baseline["clipboard"] { preferences.clipboardDelay = try number("clipboard", 0.1...2) }
         return preferences
     }
 

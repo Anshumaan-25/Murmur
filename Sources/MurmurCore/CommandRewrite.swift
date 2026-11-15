@@ -49,6 +49,9 @@ public struct CommandRewrite: Sendable {
 public enum RewriteFidelity {
     public static func accepts(_ candidate: String, selected: String, protectedTerms: [String] = []) -> Bool {
         guard !candidate.isEmpty, candidate.utf8.count <= min(10000, max(100, selected.utf8.count * 2)) else { return false }
+        guard CodeIdentifier.tokens(in: candidate).elementsEqual(CodeIdentifier.tokens(in: selected), by: {
+            $0.utf8.elementsEqual($1.utf8)
+        }) else { return false }
         func protectedTokens(_ text: String) -> [String] {
             let prose = ["a", "an", "the", "there", "i", "you", "he", "she", "we", "they", "it", "this", "that"]
             let facts = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
@@ -73,5 +76,23 @@ public enum RewriteFidelity {
             guard candidate.range(of: term, options: .literal) != nil else { return false }
         }
         return true
+    }
+}
+
+enum CodeIdentifier {
+    static let wordPattern = #"[\p{L}\p{M}\p{N}_]+"#
+    private static let words = try! NSRegularExpression(pattern: wordPattern)
+
+    static func looksLikeIdentifier(_ word: Substring) -> Bool {
+        (word.contains("_") && word.contains(where: \.isLetter)) ||
+            zip(word, word.dropFirst()).contains { left, right in left.isLowercase && right.isUppercase }
+    }
+
+    static func tokens(in text: String) -> [Substring] {
+        words.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
+            guard let range = Range(match.range, in: text) else { return nil }
+            let word = text[range]
+            return looksLikeIdentifier(word) ? word : nil
+        }
     }
 }

@@ -63,6 +63,17 @@ import MurmurCore
             results["native_unicode_paste"] = text.string == "Hello, 世界 👋"
             results["restored_text"] = board.string(forType: .string) == "Saved fixture"
             results["restored_binary"] = board.pasteboardItems?.first?.data(forType: custom) == Data([0, 1, 128, 255])
+            let delayedText = "Delayed paste 世界"
+            text.setSelectedRange(NSRange(location: 0, length: (text.string as NSString).length))
+            let delayedObserved = try await delivery.deliver(delayedText, board: board, delay: 0.35, verifyPaste: {
+                text.string == delayedText
+            }) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(700)) {
+                    _ = text.readSelection(from: board, type: .string)
+                }
+            }
+            results["delayed_paste_uses_offered_text"] = delayedObserved && text.string == delayedText
+            results["delayed_paste_restores_clipboard"] = board.string(forType: .string) == "Saved fixture"
             let structured = "Reference 123 : 456 actually make that 789."
             text.setSelectedRange(NSRange(location: 0, length: (text.string as NSString).length))
             try await delivery.deliver(RuleCleanup().apply(structured), board: board, delay: 0.02) {
@@ -114,7 +125,7 @@ import MurmurCore
         let before = ProcessInfo.processInfo.systemUptime
         indicator.show("Checking indicator", phase: .listening); indicator.panel.displayIfNeeded()
         results["panel_nonactivating"] = !indicator.panel.canBecomeKey && !indicator.panel.canBecomeMain && NSApp.keyWindow === previouslyFocused
-        results["panel_spaces"] = indicator.panel.collectionBehavior.contains(.canJoinAllSpaces) && indicator.panel.collectionBehavior.contains(.fullScreenAuxiliary)
+        results["panel_spaces"] = indicator.panel.collectionBehavior.contains([.canJoinAllSpaces, .canJoinAllApplications])
         let elapsed = (ProcessInfo.processInfo.systemUptime - before) * 1000
         indicator.inputLevel = { 0.03 }
         try? await Task.sleep(nanoseconds: 350_000_000)
@@ -122,8 +133,12 @@ import MurmurCore
         let frameMedian = SessionMeasurements.median(indicator.frameIntervals.map { $0 * 1000 }) ?? 0
         indicator.hide(); results["panel_timer_stops"] = !indicator.animating && !indicator.panel.isVisible; window.orderOut(nil)
         let lifecycleCenter = NotificationCenter()
-        let panelLifecycle = BackgroundLifecycle(center: lifecycleCenter) { suspended in if suspended { indicator.hide() } }
+        let panelLifecycle = BackgroundLifecycle(center: lifecycleCenter) { suspended in
+            if suspended { indicator.hide() }
+            else { indicator.prepareAfterWake() }
+        }
         indicator.show("Completed", phase: .idle)
+        let panelBeforeSleep = indicator.panel
         lifecycleCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
         results["panel_suspension_hides"] = !indicator.panel.isVisible && !indicator.animating
         lifecycleCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
@@ -131,7 +146,11 @@ import MurmurCore
         indicator.panel.alphaValue = 0
         indicator.panel.level = .floating
         indicator.show("Listening after wake", phase: .listening)
-        try? await Task.sleep(nanoseconds: 2_100_000_000)
+        results["wake_recreates_window_server_panel"] = indicator.panel !== panelBeforeSleep && !panelBeforeSleep.isVisible
+        indicator.panel.orderOut(nil)
+        try? await Task.sleep(for: .milliseconds(600))
+        results["active_indicator_recovers_if_ordered_out"] = indicator.panel.isVisible && indicator.animating
+        try? await Task.sleep(for: .milliseconds(1500))
         results["panel_recovers_after_wake"] = indicator.panel.isVisible && indicator.panel.alphaValue == 1 && indicator.panel.level == .statusBar
         results["old_dismissal_cannot_hide_new_capture"] = indicator.animating
         results["panel_frame_on_display"] = NSScreen.screens.contains { $0.visibleFrame.contains(indicator.panel.frame) }
@@ -314,9 +333,18 @@ import MurmurCore
             let policy = NSApp.activationPolicy()
             controller.retainUncertain(raw: "Synthetic uncertain instruction", identity: session, application: "fixture", duration: 2, frames: [], practice: false, editing: true)
             results["uncertain_speech_is_retained_without_automatic_delivery"] = !delivered && controller.lastText == "Synthetic uncertain instruction" && controller.sessions.phase == .idle
-            results["uncertain_speech_can_show_menu_bar_recovery"] = controller.lastDictationNeedsSpeechReview
-            results["uncertain_speech_does_not_open_review_or_show_popup"] =
-                NSApp.windows.filter { $0.isVisible } == windows && NSApp.activationPolicy() == policy && !controller.indicator.panel.isVisible
+            results["uncertain_speech_can_show_menu_bar_recovery"] = controller.lastDictationNotice?.contains("Speech uncertain") == true
+            results["uncertain_speech_shows_copy_action"] = controller.indicator.panel.isVisible && !controller.indicator.content.copyButton.isHidden
+            results["uncertain_speech_copy_panel_does_not_activate_or_open_review"] =
+                NSApp.windows.filter { $0.isVisible && $0 !== controller.indicator.panel } == windows
+                && NSApp.activationPolicy() == policy && !controller.indicator.panel.canBecomeKey
+            let board = NSPasteboard(name: .init("local.murmur.recovery." + UUID().uuidString))
+            board.setString("Original clipboard", forType: .string)
+            controller.indicator.show("Text ready", phase: .idle, copyResult: { controller.copyLast(board: board) })
+            results["recovery_panel_waits_for_explicit_copy"] = board.string(forType: .string) == "Original clipboard"
+            controller.indicator.content.copyButton.performClick(nil)
+            results["recovery_panel_copies_retained_text"] = board.string(forType: .string) == "Synthetic uncertain instruction"
+            board.releaseGlobally()
             controller.setSuspended(true)
         }
         do {
@@ -328,8 +356,9 @@ import MurmurCore
             results["stop_immediately_hides_listening_overlay"] =
                 showedWhileListening && controller.sessions.phase == .processing && !controller.indicator.panel.isVisible
             await controller.activeTask?.value
-            results["decode_failure_does_not_reopen_overlay"] =
-                controller.sessions.phase == .failed && !controller.indicator.panel.isVisible
+            results["no_audio_shows_an_error_without_a_copy_action"] =
+                controller.sessions.phase == .failed && controller.indicator.panel.isVisible
+                && controller.indicator.content.copyButton.isHidden && controller.lastDictationNotice?.contains("microphone samples") == true
             controller.setSuspended(true)
         }
         for link in links {

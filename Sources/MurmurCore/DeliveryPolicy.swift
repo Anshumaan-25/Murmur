@@ -2,9 +2,10 @@ import Foundation
 
 public enum DeliveryReason: String, Codable, Sendable {
     case ready, accessibility, targetChanged, cursorChanged, textChanged, unreadable, shortcutHeld, protectedField, clipboardChanged
+    case clipboardUnrestorable, inserted, insertionUnsupported, insertionUnconfirmed
     public var explanation: String {
         switch self {
-        case .ready: return "Paste sent · use Copy Previous Text if needed"
+        case .ready: return "The text field is ready"
         case .accessibility: return "Text ready — enable Accessibility for automatic insertion"
         case .targetChanged: return "Text ready — the focused field changed"
         case .cursorChanged: return "Text ready — the cursor moved while processing"
@@ -12,6 +13,10 @@ public enum DeliveryReason: String, Codable, Sendable {
         case .unreadable: return "Text ready — this app did not expose a text destination"
         case .shortcutHeld: return "Text ready — release the shortcut keys before insertion"
         case .clipboardChanged: return "Text ready — the clipboard changed"
+        case .clipboardUnrestorable: return "Clipboard preserved · use Copy Previous Text"
+        case .inserted: return "Dictation inserted"
+        case .insertionUnsupported: return "This field cannot accept direct insertion · use Copy Previous Text"
+        case .insertionUnconfirmed: return "Check the field before pasting again · insertion could not be confirmed"
         case .protectedField: return "Protected fields cannot receive dictation"
         }
     }
@@ -26,6 +31,18 @@ public struct FocusEvidence: Sendable {
     public var selectedText: String
     public init(pid: Int32, editable: Bool, protected: Bool = false, role: String = "", text: String? = nil, selection: NSRange? = nil, selectedText: String = "") {
         self.pid = pid; self.editable = editable; self.protected = protected; self.role = role; self.text = text; self.selection = selection; self.selectedText = selectedText
+    }
+
+    public func replacingSelection(with replacement: String) -> String? {
+        guard editable, !protected, let text, let selection,
+              selection.location >= 0, selection.length >= 0,
+              selection.location <= text.utf16.count,
+              selection.length <= text.utf16.count - selection.location,
+              selection.length == selectedText.utf16.count,
+              let range = Range(selection, in: text),
+              NSRange(range, in: text) == selection,
+              text[range].utf16.elementsEqual(selectedText.utf16) else { return nil }
+        return text.replacingCharacters(in: range, with: replacement)
     }
 }
 public enum DeliveryPolicy {
@@ -44,7 +61,7 @@ public enum DeliveryPolicy {
         guard original.editable, current.editable else { return .unreadable }
         guard sameElement else { return .targetChanged }
         if let range = original.selection, range != current.selection { return .cursorChanged }
-        if let text = original.text, text != current.text { return .textChanged }
+        if let text = original.text, current.text?.utf16.elementsEqual(text.utf16) != true { return .textChanged }
         if requireSelection {
             guard let range = original.selection, range.location >= 0, range.location != NSNotFound,
                   range.length > 0, range.length <= Int.max - range.location,

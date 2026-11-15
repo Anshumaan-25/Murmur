@@ -8,6 +8,10 @@ test ! -L "$built_app"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$built_app/Contents/Info.plist")" = local.murmur.dictation
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$built_app/Contents/Info.plist")" = Keydown
 codesign --verify --deep --strict "$built_app"
+if codesign -d --verbose=2 "$built_app" 2>&1 | /usr/bin/grep -qx 'Signature=adhoc'; then
+  printf 'Build with the managed signing identity before installing Keydown.\n' >&2
+  exit 1
+fi
 for app in "$installed_app" "$legacy_app"; do
   if [ -e "$app" ] || [ -L "$app" ]; then
     if [ -L "$app" ] || [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" != local.murmur.dictation ]; then
@@ -59,6 +63,15 @@ codesign --verify --deep --strict "$installed_app"
 open -g "$installed_app" --args --background
 published=0
 stopped=0
+if [ -d "$staged_app" ]; then
+  # Keep the actual previous bundle after the swap. Preserve the stage on archive failure.
+  keep_backup=1
+  mkdir -p .local
+  backup_dir=$(mktemp -d "$PWD/.local/previous-install.XXXXXX")
+  python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$staged_app" "$backup_dir/Keydown.bundle"
+  keep_backup=0
+  printf 'Archived the previous app at %s\n' "$backup_dir/Keydown.bundle"
+fi
 if [ -d "$legacy_app" ]; then
   mkdir -p .local
   backup_dir=$(mktemp -d "$PWD/.local/previous-install.XXXXXX")

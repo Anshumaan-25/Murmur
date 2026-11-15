@@ -6,6 +6,19 @@ final class IndicatorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 final class IndicatorView: NSView {
+    lazy var copyButton: NSButton = {
+        let button = NSButton(title: "Copy Text", target: self, action: #selector(copyText))
+        button.bezelStyle = .rounded
+        button.refusesFirstResponder = true
+        button.frame = NSRect(x: 267, y: 7, width: 92, height: 24)
+        button.isHidden = true
+        addSubview(button)
+        return button
+    }()
+    var copyResult: (() -> Void)? {
+        didSet { copyButton.isHidden = copyResult == nil }
+    }
+    @objc private func copyText() { copyResult?() }
     var message = "Listening"
     var amplitude: Double = 0
     var phase: CapturePhase = .idle
@@ -44,7 +57,9 @@ final class IndicatorView: NSView {
         if isLong { paragraph.lineBreakMode = .byWordWrapping }
         (message as NSString).draw(in: NSRect(x: 140, y: isLong ? 29 : 38, width: bounds.width - 157, height: isLong ? 33 : 18), withAttributes: [.font:font, .foregroundColor:Palette.text, .paragraphStyle:paragraph])
         let hint = phase == .listening ? "Speak naturally · Esc to cancel" : (phase == .processing ? "Transcribing on your Mac" : (message.hasPrefix("Copied") ? "Your text is on the clipboard" : "KEYDOWN · ON DEVICE"))
-        (hint as NSString).draw(at: NSPoint(x: 140, y: 17), withAttributes: [.font:NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor:Palette.muted])
+        if copyResult == nil {
+            (hint as NSString).draw(at: NSPoint(x: 140, y: 17), withAttributes: [.font:NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor:Palette.muted])
+        }
     }
     override func mouseDown(with event: NSEvent) { dragOffset = event.locationInWindow }
     override func mouseDragged(with event: NSEvent) { let point = NSEvent.mouseLocation; window?.setFrameOrigin(NSPoint(x: point.x - dragOffset.x, y: point.y - dragOffset.y)) }
@@ -57,7 +72,7 @@ final class IndicatorView: NSView {
     }
 }
 @MainActor final class Indicator {
-    let panel: IndicatorPanel
+    private(set) var panel: IndicatorPanel
     let content = IndicatorView()
     var inputLevel: (() -> Float)?
     private var dismissal: DispatchWorkItem?
@@ -67,6 +82,9 @@ final class IndicatorView: NSView {
     private var manualLevel: Float = 0
     private var generation = UUID()
     private var announcedPhase: CapturePhase?
+    private var wantsPresentation = false
+    private var rebuildOnNextShow = false
+    private var lastPresentation = 0.0
     private let defaults: UserDefaults?
     private var observers: [NSObjectProtocol] = []
     private var accessibilityObserver: NSObjectProtocol?
@@ -74,7 +92,7 @@ final class IndicatorView: NSView {
     private let reducedMotion: @MainActor () -> Bool
     var preferredPoint: NSPoint?
     var didDraw: (() -> Void)?
-    var animating: Bool { timer != nil }
+    var animating: Bool { timer?.isValid == true }
     private(set) var frameIntervals: [Double] = []
     init(defaults: UserDefaults? = .standard,
          workspaceNotifications: NotificationCenter? = nil,
@@ -82,12 +100,7 @@ final class IndicatorView: NSView {
         self.defaults = defaults
         self.workspaceNotifications = workspaceNotifications ?? NSWorkspace.shared.notificationCenter
         self.reducedMotion = reducedMotion
-        panel = IndicatorPanel(contentRect: NSRect(x: 0, y: 0, width: 376, height: 78), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.appearance = NSAppearance(named: .darkAqua)
-        panel.isFloatingPanel = true; panel.level = .statusBar; panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .stationary]
-        panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true; panel.contentView = content
-        panel.setAccessibilityLabel("Keydown dictation status")
+        panel = Self.makePanel(content: content)
         content.didDraw = { [weak self] in self?.didDraw?() }
         content.didDock = { [weak self] frame, visible in
             let area = visible.insetBy(dx: 12, dy: 12)
@@ -95,7 +108,10 @@ final class IndicatorView: NSView {
                                 Double((frame.minY - area.minY) / max(1, area.height - frame.height))], forKey: "indicatorDock")
         }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { if self?.panel.isVisible == true { self?.place() } }
+            MainActor.assumeIsolated {
+                guard let self, self.wantsPresentation else { return }
+                self.present()
+            }
         })
         accessibilityObserver = self.workspaceNotifications.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
@@ -103,6 +119,22 @@ final class IndicatorView: NSView {
             MainActor.assumeIsolated { self?.updateAnimation() }
         }
         place()
+    }
+
+    private static func makePanel(content: IndicatorView) -> IndicatorPanel {
+        let panel = IndicatorPanel(contentRect: NSRect(x: 0, y: 0, width: 376, height: 78), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.hidesOnDeactivate = false
+        // The indicator belongs to a background app and must join other apps' fullscreen Spaces.
+        panel.collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications, .ignoresCycle]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.contentView = content
+        panel.setAccessibilityLabel("Keydown dictation status")
+        return panel
     }
 
     deinit {
@@ -123,6 +155,21 @@ final class IndicatorView: NSView {
         }
         panel.setFrame(IndicatorLayout.frame(in: screen.visibleFrame, size: CGSize(width: 376, height: 78), anchor: anchor), display: true)
     }
+    func prepareAfterWake() {
+        hide()
+        preferredPoint = nil
+        rebuildOnNextShow = true
+    }
+
+    private func present() {
+        lastPresentation = ProcessInfo.processInfo.systemUptime
+        place()
+        panel.level = .statusBar
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        panel.displayIfNeeded()
+    }
+
     func preview(reset: Bool = false) {
         if reset { defaults?.removeObject(forKey: "indicatorDock"); defaults?.removeObject(forKey: "indicatorPosition") }
         preferredPoint = nil; show("Recording indicator preview", phase: .idle)
@@ -130,44 +177,47 @@ final class IndicatorView: NSView {
     var diagnostic: [String: Any] {
         ["visible": panel.isVisible, "alpha": panel.alphaValue, "level": panel.level.rawValue,
          "frame": NSStringFromRect(panel.frame), "on_display": NSScreen.screens.contains { $0.visibleFrame.intersects(panel.frame) },
-         "animating": animating]
+         "animating": animating, "on_active_space": panel.isOnActiveSpace, "occlusion_visible": panel.occlusionState.contains(.visible)]
     }
-    func show(_ message: String, phase: CapturePhase) {
+    func show(_ message: String, phase: CapturePhase, copyResult: (() -> Void)? = nil, duration: Double = 2) {
         generation = UUID()
+        if rebuildOnNextShow {
+            // AppKit can still report draws for a panel the Window Server lost during sleep.
+            panel.contentView = nil
+            panel = Self.makePanel(content: content)
+            rebuildOnNextShow = false
+        }
+        wantsPresentation = true
         if announcedPhase != phase {
             announcedPhase = phase
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                                  userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         }
         dismissal?.cancel(); content.message = message; content.phase = phase
+        content.copyResult = copyResult
         content.setAccessibilityLabel(message); content.needsDisplay = true
-        place()
-        panel.level = .statusBar
-        // Status must remain visible even if an animation was interrupted by sleep.
-        panel.alphaValue = 1
-        panel.orderFrontRegardless()
+        present()
         updateAnimation()
-        panel.displayIfNeeded()
         if phase == .idle || phase == .cancelled || phase == .failed {
             let current = generation
             let work = DispatchWorkItem { [weak self] in
                 guard self?.generation == current else { return }; self?.hide()
             }; dismissal = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
         }
     }
     private func updateAnimation() {
-        guard panel.isVisible else { return }
+        guard wantsPresentation else { return }
         content.reduceMotion = reducedMotion()
         let interval = content.reduceMotion ? 1.0 / 20 : 1.0 / 60
-        if content.reduceMotion && content.phase != .listening {
+        if (content.reduceMotion && content.phase != .listening) || [.idle, .cancelled, .failed].contains(content.phase) {
             timer?.invalidate()
             timer = nil
             content.step(level: 0, delta: 1)
             return
         }
         content.needsDisplay = true
-        guard timer?.timeInterval != interval else { return }
+        guard timer?.isValid != true || timer?.timeInterval != interval else { return }
         timer?.invalidate()
         tick = ProcessInfo.processInfo.systemUptime
         frameIntervals = []
@@ -180,13 +230,30 @@ final class IndicatorView: NSView {
     }
 
     private func refresh() {
-        guard panel.isVisible else { timer?.invalidate(); timer = nil; return }
+        guard wantsPresentation else { return }
         let now = ProcessInfo.processInfo.systemUptime; let elapsed = now - tick; let delta = min(0.1, max(0.001, elapsed)); tick = now
+        if (content.phase == .starting || content.phase == .listening), now - lastPresentation >= 0.25,
+           !panel.isVisible || !panel.isOnActiveSpace || !panel.occlusionState.contains(.visible) {
+            present()
+        }
         frameIntervals.append(elapsed); if frameIntervals.count > 180 { frameIntervals.removeFirst() }
         let rms = content.phase == .listening ? inputLevel?() ?? manualLevel : 0
         let level = meter.advance(rms: rms, delta: delta)
         content.step(level: level, delta: delta)
     }
-    func hide() { generation = UUID(); dismissal?.cancel(); dismissal = nil; timer?.invalidate(); timer = nil; panel.orderOut(nil); panel.alphaValue = 1; meter = AudioMeter(); manualLevel = 0 }
+    func hide() {
+        wantsPresentation = false
+        generation = UUID()
+        dismissal?.cancel()
+        dismissal = nil
+        timer?.invalidate()
+        timer = nil
+        content.copyResult = nil
+        panel.orderOut(nil)
+        panel.alphaValue = 1
+        meter = AudioMeter()
+        manualLevel = 0
+        announcedPhase = nil
+    }
     func level(_ value: Float) { manualLevel = value }
 }

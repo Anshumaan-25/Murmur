@@ -31,7 +31,8 @@ import MurmurCore
                 result = await NativeChecks.run(audioURL: audio, withCleanup: arguments.contains("--with-cleanup"), previewDirectory: preview)
             } else if arguments.count >= 3, arguments[0] == "--fixture-insert", let pid = pid_t(arguments[1]), pid > 0 {
                 report = URL(fileURLWithPath: arguments[2])
-                result = await insert(pid: pid, moveCursor: arguments.contains("--move-fixture-cursor"))
+                let switchFocus = arguments.count == 4 ? URL(fileURLWithPath: arguments[3]) : nil
+                result = await insert(pid: pid, switchFocus: switchFocus)
             } else {
                 result = ["passed": false, "error": "Unknown fixture arguments"]
             }
@@ -47,21 +48,23 @@ import MurmurCore
         app.run()
     }
 
-    private static func insert(pid: pid_t, moveCursor: Bool) async -> [String: Any] {
-        guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else { return ["error": "Grant Accessibility to Keydown Fixture."] }
+    private static func insert(pid: pid_t, switchFocus: URL?) async -> [String: Any] {
+        guard AXIsProcessTrusted() else { return ["error": "Grant Accessibility to Keydown Fixture."] }
         let continuity = FocusContinuity(pid: pid, toggleKey: 49, holdKey: nil)
         defer { continuity.stop() }
         let initial = Destination.capture()
         guard initial.pid == pid, initial.bundle == targetBundle else { return ["error": "The owned fixture is not focused."] }
         let original = await initial.resolveEditor(continuity: continuity)
-        if moveCursor {
-            for down in [true, false] {
-                CGEvent(keyboardEventSource: nil, virtualKey: 124, keyDown: down)?.postToPid(pid)
-            }
-            try? await Task.sleep(nanoseconds: 80_000_000)
-        }
-        let inserter = ClipboardInserter()
+        let inserter = TextInserter()
         do {
+            if let switchFocus {
+                try Data().write(to: switchFocus, options: .atomic)
+                let deadline = ContinuousClock.now + .seconds(2)
+                while !FileManager.default.fileExists(atPath: switchFocus.appendingPathExtension("done").path) {
+                    guard ContinuousClock.now < deadline else { return ["error": "The fixture did not switch focus."] }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+            }
             let outcome = try await inserter.insert(text, destination: original, continuity: continuity)
             return ["outcome": outcome.rawValue, "target_app": original.bundle, "delivery": inserter.lastAttempt]
         } catch {
