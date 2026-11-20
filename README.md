@@ -2,6 +2,10 @@
 
 A personal macOS dictation utility with local recognition and local text editing.
 
+[Download Keydown for Mac](https://anshumaan-25.github.io/Murmur/) · [Beta releases](https://github.com/Anshumaan-25/Murmur/releases)
+
+The packaged English beta is for Apple silicon, macOS 26 or later. It includes both offline models. The local signature is unnotarized. The website explains the first launch and permissions.
+
 Requires macOS 26 or later and Swift command line tools. Build with `make app`, launch with `make run`, install in Applications with `make install`, and verify with `make test`. No package dependencies are needed for the basic native application.
 
 Before granting permissions on a fresh checkout, run `bash scripts/create_signing_identity.sh` and then `make install`. The script creates a project keychain in `.local/code-signing` and stores its generated password in your macOS login Keychain. Builds use the pinned certificate and lock the project keychain again after signing. Run the setup script again to verify the identity. If the login Keychain is locked, unlock it through Keychain Access before building.
