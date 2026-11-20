@@ -8,6 +8,8 @@ repo = site.parent
 preview = repo / ".build" / "website-preview"
 source = site / "dist"
 html = (source / "index.html").read_text()
+html = re.sub(r'(<meta name="goatcounter-code" content=")[^"]*(">)', r"\1\2", html)
+html = re.sub(r'(<p id="metrics-note">).*?(</p>)', r"\1Website analytics are off in this preview.\2", html)
 prefix = "https://github.com/Anshumaan-25/Murmur/releases/download/"
 links = re.findall(r'href="(' + re.escape(prefix) + r'[^"]+)"', html)
 if len(links) != 2:

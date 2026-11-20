@@ -6,6 +6,6 @@ For GitHub Pages, publish only `website/dist/` as the Pages artifact. First uplo
 
 ## Website analytics at launch
 
-To enable the hosted GoatCounter integration, register a site you control and set its public site code in the goatcounter-code meta element. The preview defaults to disabled. The website requests the analytics script only on HTTPS and honors Do Not Track and Global Privacy Control. No analytics code is included in Keydown.
+The public site uses the anshumaan GoatCounter account. The staging script clears the site code in local previews. The website requests the analytics script only on HTTPS and honors Do Not Track and Global Privacy Control. No analytics code is included in Keydown.
 
 In the GoatCounter dashboard, use page views and estimated unique visitors for the landing page, and the download-mac-beta event for button clicks. The share of visitors who clicked can be estimated by comparing unique visitors for the event and the page over the same period. Script blockers and privacy settings affect the totals. GitHub Release asset download counts are a separate signal. None of these confirms an installation.

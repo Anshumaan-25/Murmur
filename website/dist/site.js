@@ -83,7 +83,6 @@ openLinkedQuestion();
 
 const code = document.querySelector('meta[name="goatcounter-code"]').content.trim();
 if (/^[a-z0-9][a-z0-9-]*$/.test(code) && location.protocol === 'https:') {
-  document.getElementById('metrics-note').textContent = 'This website uses GoatCounter to estimate visits and count download-button clicks. These measurements cover the website only.';
   if (navigator.doNotTrack !== '1' && !navigator.globalPrivacyControl) {
     const analytics = document.createElement('script');
     analytics.async = true;
