@@ -8,7 +8,7 @@ import MurmurCore
 @MainActor enum NativeChecks {
     static func run(audioURL: URL? = nil, withCleanup: Bool = false, previewDirectory: URL? = nil) async -> [String: Any] {
         var results = await shortcutGestures()
-        results.merge(await windowIntegration()) { _, new in new }
+        results.merge(await windowIntegration(previewDirectory: previewDirectory)) { _, new in new }
         do {
             let shortcuts = Hotkeys()
             let testKey = UInt32(kVK_F20)
@@ -120,11 +120,11 @@ import MurmurCore
             } catch { results["fixture_pipeline"] = false }
         }
         board.releaseGlobally()
-        let indicator = Indicator()
+        let indicator = Indicator(defaults: nil)
         results["panel_final_window_level"] = indicator.panel.level == .statusBar
         let previouslyFocused = NSApp.keyWindow
         let before = ProcessInfo.processInfo.systemUptime
-        indicator.show("Checking indicator", phase: .listening); indicator.panel.displayIfNeeded()
+        indicator.show("Listening…", phase: .listening); indicator.panel.displayIfNeeded()
         results["panel_nonactivating"] = !indicator.panel.canBecomeKey && !indicator.panel.canBecomeMain && NSApp.keyWindow === previouslyFocused
         results["panel_spaces"] = indicator.panel.collectionBehavior.contains([.canJoinAllSpaces, .canJoinAllApplications])
         let elapsed = (ProcessInfo.processInfo.systemUptime - before) * 1000
@@ -132,6 +132,31 @@ import MurmurCore
         try? await Task.sleep(nanoseconds: 350_000_000)
         results["panel_audio_response"] = indicator.content.amplitude > 0.1 && indicator.animating
         let frameMedian = SessionMeasurements.median(indicator.frameIntervals.map { $0 * 1000 }) ?? 0
+        let listeningFrame = indicator.panel.frame
+        if let previewDirectory {
+            results["listening_preview"] = preview(indicator.content, "listening", in: previewDirectory)
+        }
+        var copies = 0
+        indicator.show(DeliveryReason.inserted.explanation, phase: .idle, notice: .inserted, copyResult: { copies += 1 })
+        let success = indicator.panel.frame
+        results["inserted_compact_static_manual_copy"] = success.height < listeningFrame.height && success.width < listeningFrame.width
+            && !indicator.animating && !indicator.content.copyButton.isHidden && copies == 0
+            && indicator.content.copyButton.imagePosition == .imageOnly
+        if let previewDirectory { results["inserted_preview"] = preview(indicator.content, "inserted", in: previewDirectory) }
+        indicator.content.copyButton.performClick(nil)
+        indicator.show(DeliveryReason.insertionUnconfirmed.explanation, phase: .idle, notice: .unconfirmed, copyResult: { copies += 1 })
+        results["attention_keeps_dock_and_copy_label"] = !indicator.animating
+            && indicator.panel.frame.size.width > success.width && copies == 1
+            && indicator.panel.frame.maxX == success.maxX && indicator.panel.frame.maxY == listeningFrame.maxY
+            && !indicator.content.closeButton.isHidden && indicator.content.copyButton.title == "Copy Text"
+            && indicator.content.copyButton.imagePosition == .noImage
+        if let previewDirectory {
+            for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                indicator.panel.appearance = NSAppearance(named: appearance)
+                results["attention_preview_" + name] = preview(indicator.content, "attention-" + name, in: previewDirectory)
+            }
+            indicator.panel.appearance = nil
+        }
         indicator.hide(); results["panel_timer_stops"] = !indicator.animating && !indicator.panel.isVisible; window.orderOut(nil)
         let lifecycleCenter = NotificationCenter()
         let panelLifecycle = BackgroundLifecycle(center: lifecycleCenter) { suspended in
@@ -163,17 +188,7 @@ import MurmurCore
         review.update(raw: "recognized fixture", cleaned: "Formatted fixture.", outcome: "Available for copy")
         if let previewDirectory, let view = review.window?.contentView {
             review.update(raw: "Schedule our meeting at 5.15 p.m. Actually make that 5.50 p.m.", cleaned: "Schedule our meeting at 5:50 PM.", outcome: "Available for copy")
-            view.layoutSubtreeIfNeeded()
-            if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-                view.cacheDisplay(in: view.bounds, to: bitmap)
-                if let data = bitmap.representation(using: .png, properties: [:]) {
-                    do {
-                        try FileManager.default.createDirectory(at: previewDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                        try data.write(to: previewDirectory.appendingPathComponent("result-review.png"))
-                        results["review_preview_rendered"] = true
-                    } catch { results["review_preview_rendered"] = false }
-                }
-            }
+            results["review_preview_rendered"] = preview(view, "result-review", in: previewDirectory)
             review.update(raw: "recognized fixture", cleaned: "Formatted fixture.", outcome: "Available for copy")
         }
         results["review_keeps_both_stages"] = review.rawText == "recognized fixture" && review.formattedText == "Formatted fixture."
@@ -412,6 +427,19 @@ import MurmurCore
         return ["passed":results.values.allSatisfy { $0 }, "checks":results, "indicator_paint_dispatch_ms":elapsed, "indicator_frame_median_ms":frameMedian, "fixture_pipeline_ms":pipelineTimes, "fixture_cleanup":withCleanup, "fixture_model_uses":modelUses, "scope":"App-owned text controls and named clipboard. No microphone or cross-application grant is exercised."]
     }
 
+    private static func preview(_ view: NSView, _ name: String, in directory: URL) -> Bool {
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { return false }
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try png.write(to: directory.appendingPathComponent(name + ".png"))
+            return true
+        } catch { return false }
+    }
+
     private static func shortcutGestures() async -> [String: Bool] {
         let shortcuts = Hotkeys()
         shortcuts.configure(keyCode: UInt32(kVK_F20))
@@ -517,7 +545,7 @@ import MurmurCore
         return results
     }
 
-    private static func windowIntegration() async -> [String: Bool] {
+    private static func windowIntegration(previewDirectory: URL?) async -> [String: Bool] {
         var retentionFailure = false
         let controller = DictationController(ephemeral: true, retentionCleanup: {
             if retentionFailure { throw CocoaError(.fileWriteNoPermission) }
@@ -588,19 +616,39 @@ import MurmurCore
             controller.preferences.maximumSeconds == 48 && hub.statusLabel.stringValue.contains("could not be removed")
         retentionFailure = false
 
-        let first = Utterance(timestamp: Date(timeIntervalSinceNow: -10), application: "fixture", duration: 1,
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date())!
+        let first = Utterance(timestamp: yesterday, application: "com.apple.TextEdit", duration: 1,
                               raw: "Older fixture", cleaned: "Older fixture.", inserted: "", outcome: "fixture", latency: 0)
-        let newest = Utterance(application: "fixture", duration: 1, raw: "New fixture",
+        let newest = Utterance(application: "com.apple.Terminal", duration: 1, raw: "New fixture",
                                cleaned: "New fixture.", inserted: "", outcome: "fixture", latency: 0)
         try? controller.history?.save(first)
         go(0)
-        hub.table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        hub.table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
         go(1)
         try? controller.history?.save(newest)
         go(0)
         results["history_refresh_preserves_record_identity"] =
-            hub.rows.indices.contains(hub.table.selectedRow) && hub.rows[hub.table.selectedRow].id == first.id
+            hub.selectedRecord?.id == first.id
                 && hub.details.string.contains("Older fixture")
+
+        let headings = [0, 2].compactMap { index in
+            (hub.tableView(hub.table, viewFor: nil, row: index) as? NSTextField)?.stringValue
+        }
+        results["history_groups_today_yesterday"] = headings == ["Today", "Yesterday"]
+            && !hub.tableView(hub.table, shouldSelectRow: 0) && hub.tableView(hub.table, shouldSelectRow: 1)
+        window.makeFirstResponder(hub.table)
+        hub.content.layoutSubtreeIfNeeded()
+        if let cell = hub.table.view(atColumn: 0, row: hub.table.selectedRow, makeIfNecessary: true) as? HistoryEntryCell {
+            results["keyboard_selected_row_has_copy"] = !cell.copyButton.isHidden
+        } else { results["keyboard_selected_row_has_copy"] = false }
+        if let previewDirectory, let list = hub.table.enclosingScrollView {
+            results["history_preview"] = preview(list, "history", in: previewDirectory)
+        }
+        hub.search.stringValue = "New fixture"
+        hub.reloadHistory()
+        results["history_filter_clears_missing_selection"] = hub.table.numberOfRows == 2 && hub.selectedRecord == nil
+        hub.search.stringValue = ""
+        hub.reloadHistory()
 
         let layoutSizes = [NSSize(width: 760, height: 560), NSSize(width: 900, height: 650),
                            NSSize(width: 1040, height: 760), NSSize(width: 1140, height: 820)]

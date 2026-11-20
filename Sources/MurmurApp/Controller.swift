@@ -72,11 +72,12 @@ import MurmurCore
         status?(text)
         phaseChanged?(phase)
     }
-    private func reportDictationOutcome(_ message: String, canCopy: Bool = false) {
+    private func reportDictationOutcome(_ message: String, canCopy: Bool = false, reason: DeliveryReason? = nil) {
         lastDictationNotice = message
         announce(message)
         let copy: (() -> Void)? = canCopy ? { [weak self] in self?.copyLast(showConfirmation: true) } : nil
-        indicator.show(message, phase: sessions.phase, copyResult: copy, duration: canCopy ? 10 : 5)
+        let notice: IndicatorNotice = reason == .insertionUnconfirmed && message == DeliveryReason.insertionUnconfirmed.explanation ? .unconfirmed : .attention
+        indicator.show(message, phase: sessions.phase, notice: notice, copyResult: copy, duration: canCopy ? 10 : 5)
     }
     var provider: any SpeechProvider {
         if preferences.speechEngine == .systemAnalyzer { return SystemSpeechProvider() }
@@ -537,11 +538,11 @@ import MurmurCore
                 _ = sessions.transition(.idle, session: identity)
                 if outcome == .inserted {
                     announce(message)
-                    indicator.show(message, phase: .idle, copyResult: { [weak self] in
+                    indicator.show(message, phase: .idle, notice: message == reason.explanation ? .inserted : .attention, copyResult: { [weak self] in
                         self?.copyLast(showConfirmation: true)
                     }, duration: 2.5)
                 }
-                else { reportDictationOutcome(message, canCopy: true) }
+                else { reportDictationOutcome(message, canCopy: true, reason: reason) }
                 hotkeys.escape(false); changed?()
             } catch MurmurError.empty where recognized.isEmpty {
                 guard sessions.transition(.idle, session: identity) else { return }
@@ -635,7 +636,7 @@ import MurmurCore
                 let outcome = try await inserter.insert(text, destination: resolved, continuity: continuity)
                 try Task.checkCancellation()
                 if outcome == .inserted { announce(inserter.lastReason.explanation) }
-                else { reportDictationOutcome(inserter.lastReason.explanation, canCopy: true) }
+                else { reportDictationOutcome(inserter.lastReason.explanation, canCopy: true, reason: inserter.lastReason) }
             } catch {
                 if !Task.isCancelled { announce(error.localizedDescription) }
             }

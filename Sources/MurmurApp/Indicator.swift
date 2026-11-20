@@ -5,12 +5,38 @@ final class IndicatorPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
+enum IndicatorNotice {
+    case status, inserted, unconfirmed, attention
+}
+
 final class IndicatorView: NSView {
+    private let headline = NSTextField(labelWithString: "")
+    private let detail = NSTextField(wrappingLabelWithString: "")
+    private let check = NSImageView()
+    private let meterFrame = NSRect(x: 15, y: 3, width: 57, height: 36)
+    private var showsMeter = false
+    private(set) var preferredSize = NSSize(width: 150, height: 38)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        headline.font = .systemFont(ofSize: 13, weight: .semibold)
+        detail.font = .systemFont(ofSize: 12)
+        detail.textColor = .secondaryLabelColor
+        check.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
+        check.contentTintColor = Palette.mint
+        check.setAccessibilityElement(false)
+        for view in [headline, detail, check] { addSubview(view) }
+    }
+
+    required init?(coder: NSCoder) { fatalError("Unsupported initializer") }
+
     lazy var copyButton: NSButton = {
         let button = NSButton(title: "Copy Text", target: self, action: #selector(copyText))
         button.bezelStyle = .rounded
         button.refusesFirstResponder = true
-        button.frame = NSRect(x: 286, y: 45, width: 80, height: 24)
+        button.toolTip = "Copy Text"
+        button.setAccessibilityLabel("Copy Text")
+        button.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
         button.controlSize = .small
         button.isHidden = true
         addSubview(button)
@@ -23,7 +49,7 @@ final class IndicatorView: NSView {
         button.refusesFirstResponder = true
         button.setAccessibilityLabel("Dismiss notification")
         button.toolTip = "Dismiss"
-        button.frame = NSRect(x: 8, y: 46, width: 26, height: 26)
+        button.contentTintColor = .secondaryLabelColor
         button.isHidden = true
         addSubview(button)
         return button
@@ -56,7 +82,55 @@ final class IndicatorView: NSView {
         didSet { copyButton.isHidden = copyResult == nil }
     }
     @objc private func copyText() { copyResult?() }
-    var message = "Listening"
+    func configure(message: String, notice: IndicatorNotice) {
+        let isCard = notice == .unconfirmed || notice == .attention
+        let inserted = notice == .inserted
+        showsMeter = dismissNotice == nil && !isCard
+        check.isHidden = !inserted
+        detail.isHidden = !isCard
+        copyButton.imagePosition = inserted ? .imageOnly : .noImage
+        copyButton.isBordered = !inserted
+        copyButton.contentTintColor = inserted ? .secondaryLabelColor : nil
+
+        if isCard {
+            let prefix = "Text ready — "
+            if notice == .unconfirmed {
+                headline.stringValue = "Check the text field"
+                detail.stringValue = "Keydown couldn’t verify insertion."
+            } else if message.hasPrefix(prefix) {
+                headline.stringValue = "Text ready"
+                let explanation = message.dropFirst(prefix.count)
+                detail.stringValue = explanation.prefix(1).uppercased() + explanation.dropFirst()
+            } else {
+                headline.stringValue = phase == .failed ? "Dictation needs attention" : "Check dictation"
+                detail.stringValue = message
+            }
+            let width: CGFloat = 334
+            let bodyWidth = width - 52
+            let measured = detail.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: bodyWidth, height: 1000)).height ?? 16
+            let bodyHeight = max(17, ceil(measured))
+            let height = 49 + bodyHeight
+            preferredSize = NSSize(width: width, height: height)
+            closeButton.frame = NSRect(x: 6, y: height - 33, width: 26, height: 26)
+            let titleRight = copyResult == nil ? width - 14 : width - 97
+            headline.frame = NSRect(x: 36, y: height - 30, width: titleRight - 36, height: 19)
+            detail.frame = NSRect(x: 36, y: 12, width: bodyWidth, height: bodyHeight)
+            copyButton.frame = NSRect(x: width - 91, y: height - 33, width: 80, height: 25)
+        } else {
+            headline.stringValue = inserted ? "Inserted" : (message == "Listening…" ? "Listening" : message)
+            let left: CGFloat = inserted ? 58 : (showsMeter ? meterFrame.maxX + 12 : 37)
+            let right: CGFloat = copyResult == nil ? 17 : 42
+            let width = ceil(headline.intrinsicContentSize.width) + left + right
+            let height: CGFloat = showsMeter ? 42 : 38
+            preferredSize = NSSize(width: width, height: height)
+            headline.frame = NSRect(x: left, y: floor((height - 18) / 2), width: width - left - right, height: 18)
+            closeButton.frame = NSRect(x: 5, y: (height - 26) / 2, width: 26, height: 26)
+            check.frame = NSRect(x: 35, y: (height - 16) / 2, width: 16, height: 16)
+            copyButton.frame = NSRect(x: width - 35, y: (height - 28) / 2, width: 28, height: 28)
+        }
+        needsDisplay = true
+    }
+
     var amplitude: Double = 0
     var phase: CapturePhase = .idle
     var time: Double = 0
@@ -64,48 +138,35 @@ final class IndicatorView: NSView {
     var dragOffset = NSPoint.zero
     var didDock: ((NSRect, NSRect) -> Void)?
     var didDraw: (() -> Void)?
-    private var bars = [Double](repeating: 0, count: 25)
+    private var bars = [Double](repeating: 0, count: 15)
     func step(level: Double, delta: Double) {
+        guard showsMeter else { return }
         amplitude = level; time += delta
         for i in bars.indices {
             let shape = 0.30 + 0.70 * pow(abs(sin(Double(i) * 0.72 + (reduceMotion ? 0 : time * 2.2))), 1.2)
             let target = phase == .listening ? level * shape : 0.06 + (reduceMotion ? 0 : 0.10 * (1 + sin(time * 3.4 - Double(i) * 0.26)))
             bars[i] += (target - bars[i]) * (1 - exp(-delta / 0.065))
         }
-        needsDisplay = true
+        setNeedsDisplay(meterFrame)
     }
     override func draw(_ dirtyRect: NSRect) {
         didDraw?()
-        let frame = bounds.insetBy(dx: 1, dy: 1)
-        let path = NSBezierPath(roundedRect: frame, xRadius: 24, yRadius: 24)
-        NSGradient(starting: NSColor(srgbRed: 0.12, green: 0.13, blue: 0.20, alpha: 0.98), ending: Palette.background.withAlphaComponent(0.98))?.draw(in: path, angle: -60)
-        Palette.violet.withAlphaComponent(0.26).setStroke(); path.lineWidth = 1; path.stroke()
-        let accent = phase == .failed ? NSColor.systemOrange : (phase == .listening ? Palette.mint : Palette.violet)
-        if dismissNotice != nil {
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.lineBreakMode = .byWordWrapping
-            let width = bounds.width - (copyResult == nil ? 56 : 141)
-            (message as NSString).draw(in: NSRect(x: 42, y: 10, width: width, height: 50),
-                withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                                 .foregroundColor: Palette.text, .paragraphStyle: paragraph])
-            return
-        }
-        accent.withAlphaComponent(0.10).setFill()
-        NSBezierPath(roundedRect: NSRect(x: 14, y: 14, width: 112, height: 50), xRadius: 14, yRadius: 14).fill()
+        let frame = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let radius = detail.isHidden ? frame.height / 2 : 15
+        let outline = NSBezierPath(roundedRect: frame, xRadius: radius, yRadius: radius)
+        Palette.surface.setFill()
+        outline.fill()
+        Palette.line.setStroke()
+        outline.stroke()
+        guard showsMeter else { return }
+        let waveform = NSBezierPath()
         for i in bars.indices {
-            let height = 3 + CGFloat(bars[i]) * 33
-            accent.withAlphaComponent(0.55 + Double(i) / 60).setFill()
-            NSBezierPath(roundedRect: NSRect(x: 23 + CGFloat(i) * 3.6, y: 39 - height / 2, width: 2, height: height), xRadius: 1, yRadius: 1).fill()
+            let height = 3 + CGFloat(bars[i]) * 25
+            let rect = NSRect(x: meterFrame.minX + CGFloat(i) * 3.8, y: bounds.midY - height / 2, width: 2.5, height: height)
+            waveform.appendRoundedRect(rect, xRadius: 1.25, yRadius: 1.25)
         }
-        let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
-        let font: NSFont = .systemFont(ofSize: 12, weight: .semibold)
-        let isLong = message.count > 32
-        if isLong { paragraph.lineBreakMode = .byWordWrapping }
-        (message as NSString).draw(in: NSRect(x: 140, y: isLong ? 29 : 38, width: bounds.width - 157, height: isLong ? 33 : 18), withAttributes: [.font:font, .foregroundColor:Palette.text, .paragraphStyle:paragraph])
-        let hint = phase == .listening ? "Speak naturally · Esc to cancel" : (phase == .processing ? "Transcribing on your Mac" : (message.hasPrefix("Copied") ? "Your text is on the clipboard" : "KEYDOWN · ON DEVICE"))
-        if copyResult == nil {
-            (hint as NSString).draw(at: NSPoint(x: 140, y: 17), withAttributes: [.font:NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor:Palette.muted])
-        }
+        (phase == .listening ? Palette.mint : Palette.violet).setFill()
+        waveform.fill()
     }
     override func mouseDown(with event: NSEvent) { dragOffset = event.locationInWindow }
     override func mouseDragged(with event: NSEvent) { let point = NSEvent.mouseLocation; window?.setFrameOrigin(NSPoint(x: point.x - dragOffset.x, y: point.y - dragOffset.y)) }
@@ -169,7 +230,6 @@ final class IndicatorView: NSView {
 
     private static func makePanel(content: IndicatorView) -> IndicatorPanel {
         let panel = IndicatorPanel(contentRect: NSRect(x: 0, y: 0, width: 376, height: 78), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.appearance = NSAppearance(named: .darkAqua)
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.hidesOnDeactivate = false
@@ -199,7 +259,7 @@ final class IndicatorView: NSView {
             let old = NSPointFromString(legacy), area = screen.visibleFrame.insetBy(dx: 12, dy: 12)
             anchor = CGPoint(x: (old.x - area.minX) / max(1, area.width - 376), y: (old.y - area.minY) / max(1, area.height - 78))
         }
-        panel.setFrame(IndicatorLayout.frame(in: screen.visibleFrame, size: CGSize(width: 376, height: 78), anchor: anchor), display: true)
+        panel.setFrame(IndicatorLayout.frame(in: screen.visibleFrame, size: content.preferredSize, anchor: anchor), display: true)
     }
     func prepareAfterWake() {
         hide()
@@ -225,7 +285,7 @@ final class IndicatorView: NSView {
          "frame": NSStringFromRect(panel.frame), "on_display": NSScreen.screens.contains { $0.visibleFrame.intersects(panel.frame) },
          "animating": animating, "on_active_space": panel.isOnActiveSpace, "occlusion_visible": panel.occlusionState.contains(.visible)]
     }
-    func show(_ message: String, phase: CapturePhase, copyResult: (() -> Void)? = nil, duration: Double = 2) {
+    func show(_ message: String, phase: CapturePhase, notice: IndicatorNotice? = nil, copyResult: (() -> Void)? = nil, duration: Double = 2) {
         generation = UUID()
         if rebuildOnNextShow {
             // AppKit can still report draws for a panel the Window Server lost during sleep.
@@ -239,9 +299,11 @@ final class IndicatorView: NSView {
             NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                                  userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         }
-        dismissal?.cancel(); content.message = message; content.phase = phase
+        dismissal?.cancel(); content.phase = phase
         content.dismissNotice = [.idle, .cancelled, .failed].contains(phase) ? { [weak self] in self?.hide() } : nil
         content.copyResult = copyResult
+        let defaultNotice: IndicatorNotice = copyResult != nil || phase == .failed ? .attention : .status
+        content.configure(message: message, notice: notice ?? defaultNotice)
         content.setAccessibilityLabel(message); content.needsDisplay = true
         present()
         updateAnimation()

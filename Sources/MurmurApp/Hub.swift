@@ -70,10 +70,16 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
     var metricValues: [NSTextField] = []
     var historyWasEmpty = true
     let statusLabel = NSTextField(labelWithString: "Ready · Control Option Space")
-    var table = NSTableView()
+    var table = HistoryTable()
     var details = NSTextView()
     var search = NSSearchField()
-    var rows: [Utterance] = []
+    private var historyRows: [HistoryRow] = []
+    private var appNames: [String: String] = [:]
+    var selectedRecord: Utterance? { record(at: table.selectedRow) }
+
+    private func record(at row: Int) -> Utterance? {
+        historyRows.indices.contains(row) ? historyRows[row].record : nil
+    }
     var words = NSTextView()
     var snippetRows: [(NSTextField, NSTextView)] = []
     var snippetStack: NSStackView?
@@ -185,7 +191,10 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
             guard let self, self.table.selectedRow == -1 else { return }
             self.details.string = text
         }
-        controller.changed = { [weak self] in self?.reloadHistory() }
+        controller.changed = { [weak self] in
+            guard let self, self.window?.isVisible == true else { return }
+            self.reloadHistory()
+        }
         controller.validationChanged = { [weak self] in self?.refreshValidation() }
     }
     func refreshPermissions() {
@@ -332,7 +341,8 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         return card
     }
     func historyPage() {
-        rows = (try? controller.history?.records()) ?? []; historyWasEmpty = rows.isEmpty
+        let rows = (try? controller.history?.records()) ?? []; historyWasEmpty = rows.isEmpty
+        historyRows = HistoryRow.grouped(rows)
         let stats = UsageStatistics(rows); metricValues = []
         let metrics = row([metric("\(stats.words)", title: "WORDS SPOKEN", icon: "text.alignleft"), metric("\(Int(stats.wordsPerMinute))", title: "WORDS PER MINUTE", icon: "speedometer"), metric("\(stats.streak) days", title: "CURRENT STREAK", icon: "sparkles")]); metrics.distribution = .fillEqually; fillWidth(metrics)
         if rows.isEmpty {
@@ -348,18 +358,29 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
             return
         }
         search = NSSearchField(); search.placeholderString = "Search your dictations"; search.delegate = self; fillWidth(search)
-        table = NSTableView(); table.backgroundColor = Palette.background; table.rowHeight = 38; table.headerView = NSTableHeaderView(); table.gridColor = Palette.line; table.selectionHighlightStyle = .regular
-        for (key, title, width) in [("when", "When", 140.0), ("app", "Application", 150.0), ("text", "Text", 380.0)] { let c = NSTableColumn(identifier: .init(key)); c.title = title; c.width = width; table.addTableColumn(c) }
-        table.dataSource = self; table.delegate = self; fillWidth(scroll(table, height: 140))
+        table = HistoryTable()
+        table.backgroundColor = Palette.background
+        table.style = .fullWidth
+        table.headerView = nil
+        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        table.setAccessibilityLabel("Dictation history")
+        let column = NSTableColumn(identifier: .init("dictation"))
+        column.title = "Dictation"
+        column.resizingMask = .autoresizingMask
+        table.addTableColumn(column)
+        table.copySelection = { [weak self] in
+            guard let self, let record = self.selectedRecord else { return }
+            self.copyHistoryText(record.cleaned)
+        }
+        table.dataSource = self
+        table.delegate = self
+        fillWidth(scroll(table, height: 208))
         let (detail, detailScroll) = editor("Select a dictation to see its transcript and delivery details.", height: 130); details = detail; details.isEditable = false; fillWidth(detailScroll)
         fillWidth(row([
-            ActionButton("Copy selected") { [weak self] in self?.copySelected() },
             ActionButton("Review selected") { [weak self] in
-                guard let self, self.rows.indices.contains(self.table.selectedRow) else { return }
-                self.controller.reviewRecord(self.rows[self.table.selectedRow])
+                guard let self, let record = self.selectedRecord else { return }
+                self.controller.reviewRecord(record)
             },
-        ]))
-        fillWidth(row([
             ActionButton("Delete selected") { [weak self] in self?.deleteSelected() },
             ActionButton("Export history…") { [weak self] in self?.exportHistory() },
         ]))
@@ -368,10 +389,11 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         guard page == 0 else { return }
         let all = (try? controller.history?.records()) ?? []
         if historyWasEmpty != all.isEmpty { pageViews[0] = nil; render(); return }
-        let selectedID = rows.indices.contains(table.selectedRow) ? rows[table.selectedRow].id : nil
-        rows = (try? controller.history?.records(search: search.stringValue)) ?? []
+        let selectedID = selectedRecord?.id
+        let records = search.stringValue.isEmpty ? all : (try? controller.history?.records(search: search.stringValue)) ?? []
+        historyRows = HistoryRow.grouped(records)
         table.reloadData()
-        if let selectedID, let index = rows.firstIndex(where: { $0.id == selectedID }) {
+        if let selectedID, let index = historyRows.firstIndex(where: { $0.record?.id == selectedID }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
             showSelectedHistory()
         } else if selectedID != nil {
@@ -381,23 +403,61 @@ final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
         let stats = UsageStatistics(all)
         for (field, value) in zip(metricValues, ["\(stats.words)", "\(Int(stats.wordsPerMinute))", "\(stats.streak) days"]) { field.stringValue = value }
     }
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
-    func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
-        guard rows.indices.contains(row) else { return nil }; let record = rows[row]
-        let value: String
-        switch column?.identifier.rawValue { case "when": value = record.timestamp.formatted(date: .abbreviated, time: .shortened); case "app": value = record.application.isEmpty ? "Unknown" : record.application; default: value = record.cleaned }
-        let cell = NSTextField(labelWithString: value); cell.lineBreakMode = .byTruncatingTail; cell.font = .systemFont(ofSize: 12); cell.textColor = Palette.text; return cell
+    func numberOfRows(in tableView: NSTableView) -> Int { historyRows.count }
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { record(at: row) == nil }
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { record(at: row) != nil }
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { record(at: row) == nil ? 27 : 48 }
+
+    private func appName(for bundle: String) -> String {
+        guard !bundle.isEmpty else { return "Unknown app" }
+        if let cached = appNames[bundle] { return cached }
+        let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle).map {
+            let display = FileManager.default.displayName(atPath: $0.path)
+            return display.hasSuffix(".app") ? String(display.dropLast(4)) : display
+        } ?? bundle
+        appNames[bundle] = name
+        return name
     }
-    func tableViewSelectionDidChange(_ notification: Notification) { showSelectedHistory() }
+
+    func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
+        guard historyRows.indices.contains(row) else { return nil }
+        switch historyRows[row] {
+        case .day(let day):
+            let id = NSUserInterfaceItemIdentifier("historyDay")
+            let label = tableView.makeView(withIdentifier: id, owner: self) as? NSTextField ?? NSTextField(labelWithString: "")
+            label.identifier = id
+            label.font = .systemFont(ofSize: 12, weight: .semibold)
+            label.stringValue = HistoryRow.heading(for: day)
+            return label
+        case .entry(let entry):
+            let id = NSUserInterfaceItemIdentifier("historyEntry")
+            let cell = tableView.makeView(withIdentifier: id, owner: self) as? HistoryEntryCell ?? HistoryEntryCell(frame: .zero)
+            cell.identifier = id
+            cell.configure(entry, appName: appName(for: entry.application), selected: tableView.isRowSelected(row)) { [weak self, text = entry.cleaned] in
+                self?.copyHistoryText(text)
+            }
+            return cell
+        }
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        table.enumerateAvailableRowViews { view, index in
+            (view.view(atColumn: 0) as? HistoryEntryCell)?.selected = self.table.isRowSelected(index)
+        }
+        showSelectedHistory()
+    }
 
     private func showSelectedHistory() {
-        guard rows.indices.contains(table.selectedRow) else { details.string = ""; return }
-        let r = rows[table.selectedRow]
+        guard let r = selectedRecord else { details.string = ""; return }
         details.string = "RECOGNIZED\n\(r.raw)\n\nFORMATTED\n\(r.cleaned)\n\nDELIVERY STATUS · \(r.outcome)\n\(r.inserted)\n\nReady in \(String(format: "%.2f", r.latency)) s"
     }
     func controlTextDidChange(_ notification: Notification) { if notification.object as? NSSearchField === search { reloadHistory() } }
-    func copySelected() { guard rows.indices.contains(table.selectedRow) else { return }; NSPasteboard.general.clearContents(); NSPasteboard.general.setString(rows[table.selectedRow].cleaned, forType: .string); statusLabel.stringValue = "Copied" }
-    func deleteSelected() { guard rows.indices.contains(table.selectedRow) else { return }; do { let id = rows[table.selectedRow].id
+    private func copyHistoryText(_ text: String) {
+        let board = NSPasteboard.general
+        board.clearContents()
+        statusLabel.stringValue = board.setString(text, forType: .string) ? "Copied" : "Could not copy this text"
+    }
+    func deleteSelected() { guard let id = selectedRecord?.id else { return }; do {
             try controller.history?.delete(id)
             controller.clearPrevious(id)
             reloadHistory(); details.string = "Deleted locally." } catch { statusLabel.stringValue = error.localizedDescription } }
