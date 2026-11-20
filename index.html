@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f6f7f2">
+<meta name="description" content="Free, offline English dictation for Apple silicon Macs. Hold a shortcut, speak, and Keydown inserts your words at the cursor.">
+<meta name="goatcounter-code" content="anshumaan">
+<link rel="icon" href="assets/key.png">
+<title>Keydown — Offline dictation for Mac</title>
+<link rel="stylesheet" href="style.css">
+<script defer src="site.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="wrap"><a class="brand" href="#main"><img src="assets/key.png" width="36" height="36" alt="">Keydown</a>
+<nav aria-label="Main"><a href="#guide">Setup guide</a><a class="source" href="https://github.com/Anshumaan-25/Murmur">GitHub</a></nav></header>
+<main id="main">
+<section class="hero wrap" aria-labelledby="title">
+<div class="intro">
+<p class="category"><i></i> Offline dictation for Mac</p>
+<h1 id="title">Your voice.<br><em>At the cursor.</em></h1>
+<p class="lead">Hold a key, speak a thought, and let Keydown type it into the app you’re using. Your audio stays on your Mac.</p>
+<a class="download" data-download data-goatcounter-click="download-mac-beta" data-goatcounter-title="Mac beta download click" href="https://github.com/Anshumaan-25/Murmur/releases/download/v0.2.12-beta.1/Keydown-0.2.12-beta.1-arm64.dmg"><span class="download-icon" aria-hidden="true">⤓</span> Download for Mac</a>
+<p class="version">Free beta · Apple silicon · macOS 26+ · 1.30 GB</p>
+<a class="setup-link" href="#first-open">First time opening the beta?</a>
+</div>
+<figure class="signal" aria-label="A visual example of offline dictation">
+<div class="screen-head"><span>Dictation preview</span><span class="time" id="clock">0:04 / 0:04</span></div>
+<div class="plot"><canvas id="wave" aria-hidden="true"></canvas></div>
+<div class="screen-foot"><div class="preview-text" id="example">Let’s move the design review to Friday morning.</div>
+<div class="control"><button id="play" type="button" hidden><span id="play-icon" aria-hidden="true">↻</span><span id="play-label">Replay demo</span></button><span class="format">ENGLISH</span></div></div>
+</figure>
+</section>
+<section class="steps-section"><div class="wrap">
+<h2>From thought to text.</h2>
+<div class="steps">
+<article><div class="mini"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></div><h3>Start with a shortcut</h3><p>Place your cursor in a text field. Press Control, Option and Space to start dictating, or configure a hold-to-talk key.</p></article>
+<article><div class="mini"><img src="assets/listening.png" width="141" alt="Keydown’s Listening popup"></div><h3>Speak normally</h3><p>The waveform follows your voice. English speech recognition and punctuation run locally, even with Wi-Fi off.</p></article>
+<article><div class="mini"><img src="assets/inserted.png" width="135" alt="Keydown’s Inserted popup with a Copy button"></div><h3>Keep your place</h3><p>Finish dictating and your words appear at the cursor. Your clipboard stays yours. Choose Copy whenever you need it.</p></article>
+</div></div></section>
+<section class="guide wrap" id="guide"><div><h2>Before you<br><em>download.</em></h2><p>Setup and privacy for the Mac beta.</p></div>
+<div class="questions">
+<details open><summary>Will Keydown run on my Mac?</summary><p>This English beta is built for Apple silicon Macs running macOS 26 or later. It has been tested on an M5 MacBook Air. Both the speech and editing models are included in the 1.30 GB download.</p></details>
+<details id="first-open"><summary>How do I open the beta?</summary><p>Open the disk image and drag Keydown into Applications. Open it from there. This beta uses a local signature and hasn’t been notarized by Apple. If macOS blocks the first launch because it can’t verify the developer, review Apple’s instructions before deciding whether to approve this copy. <a href="https://support.apple.com/en-us/102445">Apple’s first-open guide</a></p><p><a data-checksum href="https://github.com/Anshumaan-25/Murmur/releases/download/v0.2.12-beta.1/Keydown-0.2.12-beta.1-arm64.dmg.sha256">Download the SHA-256 checksum</a></p></details>
+<details><summary>Which permissions does it need?</summary><p>Allow Microphone to dictate. Try a sentence in Practice Dictation. Accessibility lets Keydown insert text in other apps. Input Monitoring enables hold-to-talk and helps verify that focus stayed in the original field.</p></details>
+<details><summary>Where are my recordings and transcripts?</summary><p>Recording retention is off by default. Transcript history is saved on this Mac until you delete it or change retention in Settings. The app requires no account and includes no telemetry.</p><p id="metrics-note">This website uses GoatCounter to estimate visits and count download-button clicks. These measurements cover the website only.</p></details>
+</div></section>
+</main>
+<footer><div class="wrap"><a class="brand" href="#main"><img src="assets/key.png" width="27" height="27" alt="">Keydown</a><a href="https://github.com/Anshumaan-25/Murmur/issues">Report an issue</a><span>v0.2.12 beta 1</span></div></footer>
+</body></html>
