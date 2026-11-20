@@ -104,7 +104,10 @@ def main():
                     result['passed'] = result['passed'] and result['formatting_preserved']
                     if mode == 'web-paste-only':
                         result['received_paste'] = target_state.get('received_paste', False)
-                        result['passed'] = result['passed'] and result['received_paste']
+                        result['passed'] = (result.get('outcome') in ('unconfirmed', 'available')
+                                            and target_state['text'] == prefix
+                                            and result['formatting_preserved'] and not result['received_paste'])
+                result['passed'] = result['passed'] and result.get('clipboard_unchanged') is True
                 results[mode] = result
             finally:
                 target.terminate()

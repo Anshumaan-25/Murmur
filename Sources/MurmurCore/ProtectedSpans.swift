@@ -7,7 +7,7 @@ struct ProtectedSpans {
     private var values: [(String, String)] = []
 
     mutating func mask(_ text: String) -> String {
-        replace(text, pattern: #""[^"]*"|“[^”]*”|‘[^’]*’|(?<![\p{L}\p{N}])'[^'\n]+'(?![\p{L}\p{N}])|https?://[^\s<>"”]+|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}|\b[\p{L}]*[a-z][A-Z][\p{L}]*\b"#)
+        replace(text, pattern: #"`[^`\n]*`|"[^"]*"|“[^”]*”|‘[^’]*’|(?<![\p{L}\p{N}])'[^'\n]+'(?![\p{L}\p{N}])|https?://[^\s<>"”]+|[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}|(?<![\w.])(?:(?:[\w.-]+/)*[\w-]+)?\.(?i:py|json|swift|js|ts|yaml|yml|toml|md|csv|html|css|sh|txt)\b|\b[\p{L}]*[a-z][A-Z][\p{L}]*\b"#)
     }
     mutating func maskTerms(_ text: String, terms: [String]) -> String {
         let terms = terms.filter { !$0.isEmpty }.sorted { $0.count > $1.count }.map(NSRegularExpression.escapedPattern)

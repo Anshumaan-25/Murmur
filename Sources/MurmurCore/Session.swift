@@ -16,7 +16,7 @@ public struct SessionGate: Sendable {
         guard id == session else { return false }
         let allowed: Bool
         switch (phase, next) {
-        case (.starting, .listening), (.starting, .processing), (.listening, .processing), (.processing, .inserting), (.inserting, .idle), (_, .failed): allowed = true
+        case (.starting, .listening), (.starting, .processing), (.listening, .processing), (.processing, .idle), (.processing, .inserting), (.inserting, .idle), (_, .failed): allowed = true
         default: allowed = false
         }
         guard allowed else { return false }; phase = next; return true

@@ -21,7 +21,7 @@ public struct Preferences: Codable {
     public var clipboardDelay = 0.35
     public var retention = Retention.forever
     public var keepAudio = false
-    public var contextEnabled = false
+    public var contextEnabled = true
     public var useModel = false
     public var toggleKey: UInt32 = 49
     public var customSpeechModel = ""

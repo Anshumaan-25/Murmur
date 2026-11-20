@@ -53,7 +53,7 @@
   },
   {
     "input": "hello full stop how are you",
-    "expected": "Hello. How are you."
+    "expected": "Hello. How are you?"
   },
   {
     "input": "first apples second oranges third pears",
@@ -277,11 +277,17 @@
   },
   {
     "input": "she came first and he came second",
-    "expected": "She came first and he came second."
+    "expected": "She came first and he came second.",
+    "punctuationAlternatives": [
+      "She came first, and he came second."
+    ]
   },
   {
     "input": "first I need a second opinion",
-    "expected": "First I need a second opinion."
+    "expected": "First I need a second opinion.",
+    "punctuationAlternatives": [
+      "First, I need a second opinion."
+    ]
   },
   {
     "input": "do you know the answer question mark",
@@ -470,5 +476,33 @@
   {
     "input": "Send 123 : 456 invoices, sorry, 789 invoices.",
     "expected": "Send 123 : 456 invoices, sorry, 789 invoices."
+  },
+  {
+    "input": "at 4, actually make that 5",
+    "expected": "At 5."
+  },
+  {
+    "input": "use linear—wait no—use hybrid search",
+    "expected": "Use hybrid search."
+  },
+  {
+    "input": "open config dot json",
+    "expected": "Open config.json."
+  },
+  {
+    "input": "read the the sql query",
+    "expected": "Read the SQL query."
+  },
+  {
+    "input": "the tests passed we can deploy",
+    "expected": "The tests passed. We can deploy."
+  },
+  {
+    "input": "however we dont need the api",
+    "expected": "However, we don't need the API."
+  },
+  {
+    "input": "can we use modular rag",
+    "expected": "Can we use modular RAG?"
   }
 ]

@@ -8,7 +8,7 @@ import sys
 
 def source_identity(root):
     files = []
-    for directory in ["Sources", "helpers", "scripts", "tests", "docs"]:
+    for directory in ["Sources", "helpers", "scripts", "tests", "PackageTests", "docs"]:
         files.extend(p for p in (root / directory).rglob("*")
                      if p.is_file() and p.suffix in {".swift", ".h", ".cpp", ".py", ".sh", ".json", ".md"})
     files.extend(root / name for name in ["Makefile", "Package.swift"] if (root / name).is_file())
@@ -33,7 +33,7 @@ def manifest(root, resources):
                 digest.update(block)
         assets[name] = digest.hexdigest()
     return {"version": "0.2.11", "revision": revision.stdout.strip() if revision.returncode == 0 else "unknown",
-            "source_sha256": source_identity(root), "rules": "cleanup-8", "speech_protocol": 1 if "speech-protocol.json" in assets else 0,
+            "source_sha256": source_identity(root), "rules": "cleanup-11", "speech_protocol": 1 if "speech-protocol.json" in assets else 0,
             "assets": assets}
 
 

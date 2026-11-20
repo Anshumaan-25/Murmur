@@ -1,5 +1,6 @@
 #if KEYDOWN_FIXTURE
 import AppKit
+@preconcurrency import AVFoundation
 import Carbon
 import IOKit.hidsystem
 import MurmurCore
@@ -199,7 +200,7 @@ import MurmurCore
         }
         do {
             var pauses = 0
-            let controller = DictationController(ephemeral: true, pauseMedia: { pauses += 1; return true })
+            let controller = DictationController(ephemeral: true, pauseMedia: { pauses += 1; return true }, captureStart: {})
             controller.toggle(); controller.cancel()
             await Task.yield()
             results["cancel_before_preparation_sends_no_pause"] = pauses == 0
@@ -215,7 +216,7 @@ import MurmurCore
             results["hold_requests_media_pause"] = pauses == 2
             controller.hotkeys.hold?(false)
             try? await Task.sleep(nanoseconds: 200_000_000)
-            results["hold_release_during_media_pause_stays_stopped"] = controller.sessions.phase == .cancelled && !controller.microphone.isCapturing
+            results["released_hold_finalizes_empty_fixture"] = controller.sessions.phase == .failed && !controller.microphone.isCapturing
             controller.preferences.pauseMedia = false
             controller.toggle(); await Task.yield()
             results["disabled_media_pause_sends_no_command"] = pauses == 2
@@ -274,7 +275,7 @@ import MurmurCore
             var failed = uncertain
             failed.fail()
             for (held, released, enabled, editing, practice, evidence, review, key) in [
-                (true, true, true, false, false, uncertain, false, "opted_in_hold_release_reaches_delivery"),
+                (true, true, true, false, false, uncertain, true, "opted_in_hold_release_blocks_non_speech"),
                 (true, true, false, false, false, uncertain, true, "default_hold_release_keeps_review"),
                 (true, false, true, false, false, uncertain, true, "held_duration_cap_keeps_review"),
                 (false, false, true, false, false, uncertain, true, "toggle_keeps_review_when_hold_opted_in"),
@@ -296,7 +297,7 @@ import MurmurCore
             var events: [String] = []
             let controller = DictationController(ephemeral: true, pauseMedia: { events.append("pause"); return true }, captureStart: { events.append("capture") })
             controller.start(); await Task.yield()
-            results["media_capture_spy_waits_for_settling"] = events == ["pause"]
+            results["media_capture_spy_starts_without_settling"] = events == ["pause", "capture"]
             try? await Task.sleep(nanoseconds: 220_000_000)
             results["media_capture_spy_observes_positive_order"] = events == ["pause", "capture"]
             controller.cancel(); events = []
@@ -304,25 +305,61 @@ import MurmurCore
             results["media_capture_spy_immediate_cancel_has_no_effect"] = events.isEmpty
             controller.start(); await Task.yield(); controller.cancel()
             try? await Task.sleep(nanoseconds: 200_000_000)
-            results["media_capture_spy_cancel_prevents_attempt"] = events == ["pause"]
+            results["media_capture_spy_cancel_stops_committed_capture"] = events == ["pause", "capture"] && controller.sessions.phase == .cancelled
             events = []; controller.hotkeys.hold?(true); await Task.yield(); controller.hotkeys.hold?(false)
             try? await Task.sleep(nanoseconds: 200_000_000)
-            results["media_capture_spy_release_prevents_attempt"] = events == ["pause"]
+            results["media_capture_spy_release_finishes_committed_capture"] = events == ["pause", "capture"] && controller.sessions.phase == .failed
             events = []; controller.start(); await Task.yield(); controller.setSuspended(true)
             try? await Task.sleep(nanoseconds: 200_000_000)
-            results["media_capture_spy_sleep_prevents_attempt"] = events == ["pause"]
+            results["media_capture_spy_sleep_stops_committed_capture"] = events == ["pause", "capture"] && controller.isSuspended
             controller.setSuspended(false); controller.preferences.pauseMedia = false; events = []
             controller.start(); await Task.yield()
             results["media_capture_spy_disabled_pause_still_captures"] = events == ["capture"]
             controller.cancel(); controller.preferences.pauseMedia = true; events = []
             controller.start(); await Task.yield(); controller.cancel(); controller.start()
             try? await Task.sleep(nanoseconds: 220_000_000)
-            results["media_capture_spy_old_session_cannot_capture"] = events == ["pause", "pause", "capture"]
+            results["media_capture_spy_each_session_starts_once"] = events == ["pause", "capture", "pause", "capture"]
             controller.cancel(); events = []
             let denied = DictationController(ephemeral: true, pauseMedia: { events.append("pause"); return true }, captureStart: { events.append("capture") }, captureAuthorized: { false })
             denied.start(); await Task.yield()
             results["media_capture_spy_permission_denial_has_no_effect"] = events.isEmpty && denied.sessions.phase == .failed
             denied.setSuspended(true); controller.setSuspended(true)
+        }
+        do {
+            // Use the production tap, native-format ring and converter with a known
+            // key-up inside a packet. No hardware device or TCC grant is involved.
+            let queue = DispatchQueue(label: "local.murmur.test-audio")
+            let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
+            let input = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4800)!
+            input.frameLength = input.frameCapacity
+            let channel = input.floatChannelData![0]
+            for i in 0..<4800 { channel[i] = sin(Float(i) * 0.02) * 0.5 }
+            for lateRelease in [false, true] {
+                let take = MicrophoneTake(queue: queue)
+                let tap = try queue.sync { try take.prepareTap(format: format) }
+                let start = mach_absolute_time()
+                let cutoff = start + AVAudioTime.hostTime(forSeconds: 0.15)
+                tap(input, AVAudioTime(hostTime: start))
+                let capture: Microphone.Capture = await withCheckedContinuation { continuation in
+                    queue.async {
+                        tap(input, AVAudioTime(hostTime: start + AVAudioTime.hostTime(forSeconds: 0.1)))
+                        if !lateRelease { take.setCutoff(cutoff) }
+                        take.commit(limit: 32000, onReady: {}, onLimit: {}, onError: { _ in })
+                        if lateRelease { take.setCutoff(cutoff) }
+                        take.finish { continuation.resume(returning: $0) }
+                    }
+                }
+                let samples = capture.frames.flatMap(\.samples)
+                let retainsTail = abs(samples.count - 2400) <= 2 && samples.last.map { abs($0) > 0.01 } == true
+                if lateRelease {
+                    results["late_keyup_trims_processed_audio_and_invalidates_extra_evidence"] = retainsTail && capture.speech == nil
+                } else {
+                    results["preroll_and_resampled_tail_reach_release_boundary"] = retainsTail && capture.speech != nil
+                }
+                capture.speech?.cancel()
+            }
+        } catch {
+            results["preroll_and_resampled_tail_reach_release_boundary"] = false
         }
         do {
             let controller = DictationController(ephemeral: true)
@@ -342,15 +379,23 @@ import MurmurCore
             board.setString("Original clipboard", forType: .string)
             controller.indicator.show("Text ready", phase: .idle, copyResult: { controller.copyLast(board: board) })
             results["recovery_panel_waits_for_explicit_copy"] = board.string(forType: .string) == "Original clipboard"
+            controller.indicator.content.closeButton.performClick(nil)
+            results["dismiss_preserves_result_and_clipboard"] = !controller.indicator.panel.isVisible
+                && !controller.indicator.animating && controller.lastText == "Synthetic uncertain instruction"
+                && board.string(forType: .string) == "Original clipboard"
+            controller.indicator.show("Listening", phase: .listening)
+            results["active_capture_has_no_result_actions"] = controller.indicator.content.copyButton.isHidden
+                && controller.indicator.content.closeButton.isHidden
+            controller.indicator.show("Text ready", phase: .idle, copyResult: { controller.copyLast(board: board) })
             controller.indicator.content.copyButton.performClick(nil)
             results["recovery_panel_copies_retained_text"] = board.string(forType: .string) == "Synthetic uncertain instruction"
             board.releaseGlobally()
             controller.setSuspended(true)
         }
         do {
-            let controller = DictationController(ephemeral: true)
-            _ = controller.sessions.begin()
-            controller.announce("Listening…")
+            let controller = DictationController(ephemeral: true, captureStart: {})
+            controller.start()
+            await controller.activeTask?.value
             let showedWhileListening = controller.indicator.panel.isVisible
             controller.finish()
             results["stop_immediately_hides_listening_overlay"] =

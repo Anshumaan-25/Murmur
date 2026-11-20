@@ -65,8 +65,9 @@ import MurmurCore
                     try await Task.sleep(for: .milliseconds(20))
                 }
             }
+            let clipboardBefore = NSPasteboard.general.changeCount
             let outcome = try await inserter.insert(text, destination: original, continuity: continuity)
-            return ["outcome": outcome.rawValue, "target_app": original.bundle, "delivery": inserter.lastAttempt]
+            return ["outcome": outcome.rawValue, "clipboard_unchanged": NSPasteboard.general.changeCount == clipboardBefore, "target_app": original.bundle, "delivery": inserter.lastAttempt]
         } catch {
             return ["error": error.localizedDescription]
         }

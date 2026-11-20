@@ -73,7 +73,9 @@ public struct ExecutableSpeechProvider: SpeechProvider {
         let input: Data
         if privateProtocol {
             arguments.append("--keydown-request-v1")
-            input = try SpeechRequest.encode(wav: wav, vocabulary: vocabulary)
+            // Whisper treats initial_prompt as preceding speech. On room noise it
+            // can repeat dictionary entries, even before otherwise correct speech.
+            input = try SpeechRequest.encode(wav: wav, vocabulary: [])
         } else { input = wav }
         let output = try await LocalProcess.run(executable: executable, arguments: arguments, input: input, timeout: 60, approval: approval)
         let text: String

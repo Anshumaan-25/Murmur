@@ -10,11 +10,48 @@ final class IndicatorView: NSView {
         let button = NSButton(title: "Copy Text", target: self, action: #selector(copyText))
         button.bezelStyle = .rounded
         button.refusesFirstResponder = true
-        button.frame = NSRect(x: 267, y: 7, width: 92, height: 24)
+        button.frame = NSRect(x: 286, y: 45, width: 80, height: 24)
+        button.controlSize = .small
         button.isHidden = true
         addSubview(button)
         return button
     }()
+    lazy var closeButton: NSButton = {
+        let button = NSButton(image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Dismiss notification")!,
+                              target: self, action: #selector(closeNotice))
+        button.isBordered = false
+        button.refusesFirstResponder = true
+        button.setAccessibilityLabel("Dismiss notification")
+        button.toolTip = "Dismiss"
+        button.frame = NSRect(x: 8, y: 46, width: 26, height: 26)
+        button.isHidden = true
+        addSubview(button)
+        return button
+    }()
+    private var swipeDistance: CGFloat = 0
+    var dismissNotice: (() -> Void)? {
+        didSet { closeButton.isHidden = dismissNotice == nil; swipeDistance = 0 }
+    }
+    @objc private func closeNotice() { dismissNotice?() }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let dismissNotice, event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty else {
+            super.scrollWheel(with: event)
+            return
+        }
+        if event.phase.contains(.began) { swipeDistance = 0 }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            swipeDistance = 0
+            return
+        }
+        guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else {
+            swipeDistance = 0
+            return
+        }
+        let right = event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
+        swipeDistance = max(0, swipeDistance + right)
+        if swipeDistance >= 44 { dismissNotice() }
+    }
     var copyResult: (() -> Void)? {
         didSet { copyButton.isHidden = copyResult == nil }
     }
@@ -44,6 +81,15 @@ final class IndicatorView: NSView {
         NSGradient(starting: NSColor(srgbRed: 0.12, green: 0.13, blue: 0.20, alpha: 0.98), ending: Palette.background.withAlphaComponent(0.98))?.draw(in: path, angle: -60)
         Palette.violet.withAlphaComponent(0.26).setStroke(); path.lineWidth = 1; path.stroke()
         let accent = phase == .failed ? NSColor.systemOrange : (phase == .listening ? Palette.mint : Palette.violet)
+        if dismissNotice != nil {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byWordWrapping
+            let width = bounds.width - (copyResult == nil ? 56 : 141)
+            (message as NSString).draw(in: NSRect(x: 42, y: 10, width: width, height: 50),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                                 .foregroundColor: Palette.text, .paragraphStyle: paragraph])
+            return
+        }
         accent.withAlphaComponent(0.10).setFill()
         NSBezierPath(roundedRect: NSRect(x: 14, y: 14, width: 112, height: 50), xRadius: 14, yRadius: 14).fill()
         for i in bars.indices {
@@ -194,6 +240,7 @@ final class IndicatorView: NSView {
                                  userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         }
         dismissal?.cancel(); content.message = message; content.phase = phase
+        content.dismissNotice = [.idle, .cancelled, .failed].contains(phase) ? { [weak self] in self?.hide() } : nil
         content.copyResult = copyResult
         content.setAccessibilityLabel(message); content.needsDisplay = true
         present()
@@ -248,6 +295,7 @@ final class IndicatorView: NSView {
         dismissal = nil
         timer?.invalidate()
         timer = nil
+        content.dismissNotice = nil
         content.copyResult = nil
         panel.orderOut(nil)
         panel.alphaValue = 1

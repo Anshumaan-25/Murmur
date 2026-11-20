@@ -25,6 +25,7 @@ public enum ApplicationCategory: String, Codable, CaseIterable, Sendable {
     public static func classify(bundle: String, declaredCategory: String = "") -> ApplicationCategory {
         let identity = bundle.lowercased()
         if ["terminal", "iterm", "alacritty", "kitty", "ghostty", "wezterm"].contains(where: identity.contains) { return .terminal }
+        if ["com.openai.codex", "com.todesktop.230313mzl4w4u92", "com.cursor.cursor"].contains(identity) { return .code }
         if ["vscode", "vscodium", "xcode", "sublime", "jetbrains"].contains(where: identity.contains) || identity.hasSuffix(".zed") { return .code }
         if ["outlook", "superhuman", "airmail"].contains(where: identity.contains) || identity.hasSuffix(".mail") { return .email }
         if ["slack", "discord", "telegram", "whatsapp"].contains(where: identity.contains) || identity.hasSuffix(".ichat") { return .chat }

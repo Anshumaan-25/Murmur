@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Carbon
 import MurmurCore
 
 @MainActor final class DictationController {
@@ -53,6 +54,9 @@ import MurmurCore
     private var suggestedEdit: (id: UUID, text: String, original: String)?
     var commandMode = false
     var holdSession: UUID?
+    private var holdCandidate: (target: Destination, continuity: FocusContinuity?)?
+    private var captureRequested = false
+    private var pendingHoldRelease: UInt64?
     private(set) var intent = UUID()
     private(set) var isSuspended = false
     private var dictationActivity: NSObjectProtocol?
@@ -124,15 +128,17 @@ import MurmurCore
         hotkeys.cancel = { [weak self] in self?.cancel() }
         hotkeys.command = { [weak self] in self?.start(command: true) }
         hotkeys.pasteLast = { [weak self] in self?.pasteLast() }
+        hotkeys.beginPreRoll = { [weak self] in self?.primeHold() }
+        hotkeys.discardPreRoll = { [weak self] in self?.discardHoldCandidate() }
         hotkeys.hold = { [weak self] down in
             guard let self else { return }
             if down {
-                let previous = self.sessions.id
-                self.start(triggerUptime: self.hotkeys.lastTriggerUptime)
-                if [.starting, .listening].contains(self.sessions.phase) && self.sessions.id != previous { self.holdSession = self.sessions.id }
+                guard self.ephemeral || self.holdCandidate != nil else { return }
+                self.start(triggerUptime: self.hotkeys.lastTriggerUptime, fromHold: true)
             } else {
-                if let owned = self.holdSession, owned == self.sessions.id { self.finish(releasedHold: true) }
-                self.holdSession = nil
+                if let owned = self.holdSession, owned == self.sessions.id {
+                    self.finish(releasedHold: true, through: AVAudioTime.hostTime(forSeconds: self.hotkeys.lastTriggerUptime))
+                }
             }
         }
         hotkeys.holdInterrupted = { [weak self] in
@@ -141,7 +147,8 @@ import MurmurCore
         }
         microphone.configurationChanged = { [weak self] in
             guard let self, [.starting, .listening].contains(self.sessions.phase) else { return }
-            self.cancel(message: "Microphone changed. Start dictation again.")
+            if self.microphone.meter().received { self.finish() }
+            else { self.cancel(message: "Microphone changed. Start dictation again.") }
         }
         indicator.inputLevel = { [weak microphone] in microphone?.meter().rms ?? 0 }
         applyPreferences()
@@ -252,17 +259,40 @@ import MurmurCore
         }
     }
     func toggle(triggerUptime: Double? = nil) { intent = UUID(); if [.starting, .listening].contains(sessions.phase) { finish() } else { start(triggerUptime: triggerUptime) } }
-    func start(command: Bool = false, triggerUptime: Double? = nil, expectedPID: pid_t? = nil) {
+    private func primeHold() {
+        guard !ephemeral, sessions.canStart, validationTask == nil, !isSuspended, !preparingToQuit,
+              !hasFocusedLocalDialog else { return }
+        if captureAuthorized() && !IsSecureEventInputEnabled() { microphone.prime() }
+        let continuity = FocusContinuity(pid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0,
+                                        toggleKey: UInt16(clamping: preferences.toggleKey), holdKey: UInt16(preferences.holdKey.code))
+        let target = Destination.capture()
+        holdCandidate = (target, continuity)
+        if target.protected { microphone.cancel() }
+    }
+    private func discardHoldCandidate() {
+        guard let candidate = holdCandidate else { return }
+        holdCandidate = nil
+        candidate.continuity?.stop()
+        microphone.cancel()
+    }
+    func start(command: Bool = false, triggerUptime: Double? = nil, expectedPID: pid_t? = nil, fromHold: Bool = false) {
         intent = UUID()
+        defer { if fromHold { discardHoldCandidate() } }
         guard !isSuspended, !preparingToQuit, !hasFocusedLocalDialog else { return }
         guard validationTask == nil else { announce("Cleanup validation is running. Escape cancels it."); return }
         guard sessions.canStart else { trace.record(.busy, session: sessions.id); announce("Finish this dictation first · Esc cancels it"); return }
         let triggered = triggerUptime ?? ProcessInfo.processInfo.systemUptime
-        stopWork()
+        let candidate = fromHold ? holdCandidate : nil
+        if candidate != nil { holdCandidate = nil }
+        stopWork(keepingPreRoll: candidate != nil)
         commandMode = command
         speechDiagnostic = [:]
         lastDictationNotice = nil
         let identity = sessions.prepare(); began = ProcessInfo.processInfo.systemUptime
+        if fromHold { holdSession = identity }
+        if !ephemeral && !command && !fromHold && captureAuthorized() && !IsSecureEventInputEnabled() {
+            microphone.prime()
+        }
         trace.record(.starting, session: identity); drawingSession = nil; lastSignal = nil; listeningFeedback = ListeningFeedback(); indicator.preferredPoint = nil
         indicator.didDraw = { [weak self] in
             guard let self, self.sessions.id == identity, self.drawingSession != identity else { return }
@@ -272,12 +302,14 @@ import MurmurCore
         }
         announce(command ? "Preparing edit…" : "Starting microphone…")
         practicing = !command && practiceWindow?.window?.isKeyWindow == true
-        if !practicing && !ephemeral {
+        if let candidate { focusContinuity = candidate.continuity }
+        else if !practicing && !ephemeral {
             focusContinuity = FocusContinuity(pid: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0, toggleKey: UInt16(clamping: preferences.toggleKey), holdKey: preferences.holdEnabled ? UInt16(preferences.holdKey.code) : nil)
         }
-        let target = (practicing || ephemeral) ? Destination(pid: ProcessInfo.processInfo.processIdentifier, bundle: "local.murmur.practice", element: nil, windowElement: nil, value: nil, selection: nil, selectedText: "", protected: false, editable: false, role: "") : Destination.capture()
-        guard !target.protected else { focusContinuity?.stop(); _ = sessions.transition(.failed, session: identity); announce("Protected fields cannot receive dictation."); return }
+        let target = (practicing || ephemeral) ? Destination(pid: ProcessInfo.processInfo.processIdentifier, bundle: "local.murmur.practice", element: nil, windowElement: nil, value: nil, selection: nil, selectedText: "", protected: false, editable: false, role: "") : candidate?.target ?? Destination.capture()
+        guard !target.protected && !IsSecureEventInputEnabled() else { microphone.cancel(); focusContinuity?.stop(); _ = sessions.transition(.failed, session: identity); announce("Protected fields cannot receive dictation."); return }
         if let expectedPID, target.pid != expectedPID || NSWorkspace.shared.frontmostApplication?.processIdentifier != expectedPID {
+            microphone.cancel()
             focusContinuity?.stop()
             _ = sessions.transition(.failed, session: identity)
             announce("The previous app lost focus. Start dictation again.")
@@ -286,7 +318,7 @@ import MurmurCore
         destination = target; indicator.preferredPoint = target.screenPoint; hotkeys.escape(true)
         dictationActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Keydown dictation")
         let pausePlayback = preferences.pauseMedia
-        activeTask = Task {
+        activeTask = Task { [self] in
             do {
                 guard !Task.isCancelled, sessions.id == identity, sessions.phase == .starting else { return }
                 let maximum = preferences.maximumSeconds
@@ -306,11 +338,10 @@ import MurmurCore
                     destinationResolution = Task { await target.resolveEditor(continuity: continuity) }
                 }
                 mediaPauseStatus = "disabled"
+                if !ephemeral { microphone.prime() }
                 if pausePlayback {
                     let sent = pauseMediaRequest()
                     mediaPauseStatus = sent ? "requested_unconfirmed" : "unavailable"
-                    // Let the player process its pause before opening an audio device.
-                    try await Task.sleep(nanoseconds: 150_000_000)
                 }
                 guard !Task.isCancelled, sessions.id == identity, sessions.phase == .starting else { return }
                 try beginCapture(maximumSeconds: maximum, onReady: { [weak self] in
@@ -322,14 +353,24 @@ import MurmurCore
                     guard let self, self.sessions.id == identity else { return }
                     self.finish()
                 }
+                captureRequested = true
+                if let released = pendingHoldRelease {
+                    pendingHoldRelease = nil
+                    finish(releasedHold: true, through: released)
+                    return
+                }
                 let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
                     MainActor.assumeIsolated {
                         guard let self, [.starting, .listening].contains(self.sessions.phase) else { return }
                         let meter = self.microphone.meter()
                         let now = ProcessInfo.processInfo.systemUptime
                         if (!meter.received && now - self.began > 3) || (meter.received && now - meter.lastBuffer > 2) {
-                            self.stopWork()
-                            self.reportDictationOutcome("Microphone stopped sending audio. Check the input device.")
+                            if meter.received {
+                                self.finish()
+                            } else {
+                                self.stopWork()
+                                self.reportDictationOutcome("Microphone stopped sending audio. Check the input device.")
+                            }
                             return
                         }
                         if self.sessions.phase == .listening && !self.commandMode {
@@ -353,17 +394,21 @@ import MurmurCore
                 self.timer = timer
                 RunLoop.main.add(timer, forMode: .common)
             } catch {
-                guard !Task.isCancelled, sessions.id == identity else { return }
-                destinationResolution?.cancel()
-                destinationResolution = nil
-                focusContinuity?.stop()
-                endDictationActivity()
-                _ = sessions.transition(.failed, session: identity)
-                trace.record(.failed, session: identity)
-                reportDictationOutcome(error.localizedDescription)
-                hotkeys.escape(false)
+                if !Task.isCancelled { captureFailed(error, session: identity) }
             }
         }
+    }
+    private func captureFailed(_ error: Error, session: UUID) {
+        guard sessions.id == session, [.starting, .listening].contains(sessions.phase) else { return }
+        microphone.cancel()
+        timer?.invalidate(); timer = nil
+        destinationResolution?.cancel(); destinationResolution = nil
+        focusContinuity?.stop()
+        endDictationActivity()
+        _ = sessions.transition(.failed, session: session)
+        trace.record(.failed, session: session)
+        reportDictationOutcome(error.localizedDescription)
+        hotkeys.escape(false)
     }
     private func beginCapture(maximumSeconds: Double, onReady: @escaping @MainActor () -> Void, onLimit: @escaping @MainActor () -> Void) throws {
         if ephemeral {
@@ -371,12 +416,20 @@ import MurmurCore
             try captureStartOverride()
             onReady()
         } else {
-            try microphone.start(maximumSeconds: maximumSeconds, onReady: onReady, onLimit: onLimit)
+            guard let identity = sessions.id else { throw CancellationError() }
+            microphone.start(maximumSeconds: maximumSeconds, onReady: onReady, onLimit: onLimit) { [weak self] error in
+                self?.captureFailed(error, session: identity)
+            }
         }
     }
-    func finish(releasedHold: Bool = false) {
+    func finish(releasedHold: Bool = false, through cutoff: UInt64 = mach_absolute_time()) {
         guard !isSuspended, [.starting, .listening].contains(sessions.phase), let identity = sessions.id else { return }
-        if sessions.phase == .starting && !microphone.isCapturing {
+        if !captureRequested && releasedHold {
+            pendingHoldRelease = cutoff
+            microphone.markRelease(through: cutoff)
+            return
+        }
+        if !captureRequested {
             stopWork()
             reportDictationOutcome("Microphone was still starting. Wait for Listening before speaking.")
             return
@@ -386,15 +439,17 @@ import MurmurCore
         holdSession = nil
         timer?.invalidate(); timer = nil
         let duration = ProcessInfo.processInfo.systemUptime - began
-        let capture = microphone.stop()
-        let frames = AudioTools.trimmed(capture.frames); _ = sessions.transition(.processing, session: identity)
+        let draining = microphone.stop(through: cutoff)
+        _ = sessions.transition(.processing, session: identity)
         let released = Date(); let releasedUptime = ProcessInfo.processInfo.systemUptime; let initialTarget = destination; let continuity = focusContinuity; let editing = commandMode; let prefs = preferences; let practice = practicing
         let resolution = destinationResolution
         destinationResolution = nil
         trace.record(.processing, session: identity)
         announce("Recognizing locally…")
         let selected = provider
-        activeTask = Task {
+        activeTask = Task { [self] in
+            let capture = await draining.value
+            let frames = AudioTools.trimmed(capture.frames)
             defer {
                 resolution?.cancel()
                 capture.speech?.cancel()
@@ -403,33 +458,29 @@ import MurmurCore
             }
             var recognized = ""; var prepared = ""; var app = initialTarget?.bundle ?? ""
             do {
+                async let finalizedEvidence = Self.finishEvidence(capture.speech)
                 let target = await resolution?.value ?? initialTarget
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }
                 guard target?.protected != true else { throw MurmurError.protectedTarget }
                 if editing && (target?.selectedText.isEmpty ?? true) { throw MurmurError.unavailable("Select text before starting an editing command.") }
-                var vocabulary = (try? history?.dictionary()) ?? []
-                if prefs.contextEnabled, let target, !target.protected {
-                    let words = (target.selectedText + " " + (target.value ?? "")).split(whereSeparator: { !$0.isLetter })
-                    vocabulary += Array(Set(words.filter { $0.count > 2 && $0.first?.isUppercase == true }.map(String.init))).sorted().prefix(24)
-                }
+                let dictionary = (try? history?.dictionary()) ?? []
+                let caret = target?.caret
+                let vocabulary = SpeechRequest.vocabulary(dictionary, near: prefs.contextEnabled ? caret : nil)
                 let expansions = (try? history?.values(table: "expansions")) ?? [:]
                 let styles = (try? history?.values(table: "app_styles")) ?? [:]
                 app = target?.bundle ?? ""
-                let context = TextContext(application: app, preserveCode: prefs.preserveCode, style: WritingStyle(rawValue: styles[app] ?? "neutral") ?? .neutral, dictionary: vocabulary, expansions: expansions, selected: prefs.contextEnabled ? target?.selectedText ?? "" : "", surrounding: prefs.contextEnabled ? String((target?.value ?? "").prefix(3000)) : "", mode: prefs.dictationMode)
+                let context = TextContext(application: app, preserveCode: prefs.preserveCode, style: WritingStyle(rawValue: styles[app] ?? "neutral") ?? .neutral, dictionary: dictionary, expansions: expansions, mode: prefs.dictationMode, caret: caret)
                 guard !capture.frames.isEmpty else { throw MurmurError.invalidAudio }
                 guard !frames.isEmpty else { throw MurmurError.empty }
-                let evidence: SpeechEvidence
-                if let monitor = capture.speech {
-                    evidence = (try? await Deadline.run(seconds: 3) { await monitor.finish() }) ?? SpeechEvidence()
-                } else { evidence = SpeechEvidence() }
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }
                 let result = try await selected.transcribe(frames, language: prefs.language, vocabulary: vocabulary)
+                let evidence = await finalizedEvidence
                 guard !Task.isCancelled, sessions.accepts(identity) else { return }
                 trace.record(.decoded, session: identity)
                 recognized = result.text
                 let raw = result.text
                 if reviewIfUncertain(evidence: evidence, raw: raw, identity: identity, application: app,
-                                     duration: duration, frames: frames, practice: practice, editing: editing,
+                                     duration: duration, frames: capture.frames, practice: practice, editing: editing,
                                      held: held, releasedHold: releasedHold,
                                      pasteUncertainOnHoldRelease: prefs.pasteUncertainOnHoldRelease) { return }
                 let cleaned: String
@@ -468,7 +519,7 @@ import MurmurCore
                 let outcome: TextInserter.Outcome
                 if let target {
                     outcome = try await inserter.insert(cleaned, destination: target, requireSelection: editing,
-                                                        continuity: continuity, clipboardDelay: prefs.clipboardDelay)
+                                                        continuity: continuity)
                 } else {
                     outcome = .available
                 }
@@ -484,9 +535,19 @@ import MurmurCore
                 do { try persist(record, frames: frames, previous: true) }
                 catch { message += " · Some local data could not be saved." }
                 _ = sessions.transition(.idle, session: identity)
-                if outcome == .inserted { announce(message) }
+                if outcome == .inserted {
+                    announce(message)
+                    indicator.show(message, phase: .idle, copyResult: { [weak self] in
+                        self?.copyLast(showConfirmation: true)
+                    }, duration: 2.5)
+                }
                 else { reportDictationOutcome(message, canCopy: true) }
                 hotkeys.escape(false); changed?()
+            } catch MurmurError.empty where recognized.isEmpty {
+                guard sessions.transition(.idle, session: identity) else { return }
+                hotkeys.escape(false)
+                indicator.hide()
+                announce("No speech detected")
             } catch {
                 guard sessions.accepts(identity) else { return }
                 var message = error.localizedDescription
@@ -506,15 +567,25 @@ import MurmurCore
             }
         }
     }
+    private nonisolated static func finishEvidence(_ monitor: SoundSpeechMonitor?) async -> SpeechEvidence {
+        guard let monitor else { return SpeechEvidence() }
+        return (try? await Deadline.run(seconds: 3) { await monitor.finish() }) ?? SpeechEvidence()
+    }
+
     func reviewIfUncertain(evidence: SpeechEvidence, raw: String, identity: UUID, application: String, duration: Double, frames: [AudioFrame], practice: Bool, editing: Bool, held: Bool = false,
                            releasedHold: Bool = false, pasteUncertainOnHoldRelease: Bool = false) -> Bool {
         speechDiagnostic = evidence.diagnostic(held: held && !editing)
         let eligible = held && !editing ? evidence.allowsHeldDictationDelivery : evidence.allowsAutomaticDelivery
         if eligible { return false }
-        if held && releasedHold && pasteUncertainOnHoldRelease && !editing && !practice
-            && evidence.completedSuccessfully {
-            speechDiagnostic["reason"] = "accepted_on_hold_release"
-            return false
+        if held && releasedHold && !editing && !practice {
+            if let reason = evidence.releaseReason(text: raw, frames: frames) {
+                speechDiagnostic["reason"] = reason
+                return false
+            }
+            if pasteUncertainOnHoldRelease && evidence.allowsUncertainShortRelease {
+                speechDiagnostic["reason"] = "accepted_on_hold_release"
+                return false
+            }
         }
         // This gate precedes cleanup, edit interpretation and insertion. Review
         // retains raw text; no cropping or word loss is used to qualify a clip.
@@ -561,8 +632,7 @@ import MurmurCore
                 try Task.checkCancellation()
                 let resolved = await target.resolveEditor(continuity: continuity)
                 try Task.checkCancellation()
-                let outcome = try await inserter.insert(text, destination: resolved, continuity: continuity,
-                                                        clipboardDelay: preferences.clipboardDelay)
+                let outcome = try await inserter.insert(text, destination: resolved, continuity: continuity)
                 try Task.checkCancellation()
                 if outcome == .inserted { announce(inserter.lastReason.explanation) }
                 else { reportDictationOutcome(inserter.lastReason.explanation, canCopy: true) }
@@ -652,7 +722,7 @@ import MurmurCore
         if !isSuspended { announce(message) }
     }
 
-    private func stopWork() {
+    private func stopWork(keepingPreRoll: Bool = false) {
         indicator.hide()
         intent = UUID()
         suggestedEdit = nil
@@ -662,6 +732,9 @@ import MurmurCore
         trace.record(.cancelled, session: sessions.id)
         sessions.cancel()
         holdSession = nil
+        pendingHoldRelease = nil
+        captureRequested = false
+        discardHoldCandidate()
         validationTask?.cancel()
         timer?.invalidate()
         timer = nil
@@ -672,8 +745,7 @@ import MurmurCore
         destination = nil
         focusContinuity?.stop()
         focusContinuity = nil
-        microphone.cancel()
-        inserter.finish()
+        if !keepingPreRoll { microphone.cancel() }
         fixtureClipboard?.finish()
         hotkeys.escape(false)
         endDictationActivity()

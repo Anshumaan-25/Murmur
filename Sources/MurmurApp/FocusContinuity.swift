@@ -27,6 +27,10 @@ final class FocusContinuity {
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly, eventsOfInterest: mask, callback: { _, kind, event, context in
             guard let context else { return Unmanaged.passUnretained(event) }
             let owner = Unmanaged<FocusContinuity>.fromOpaque(context).takeUnretainedValue()
+            if kind == .keyDown && event.getIntegerValueField(.keyboardEventKeycode) == Int64(UInt16.max)
+                && event.getIntegerValueField(.eventSourceUnixProcessID) == Int64(getpid()) {
+                return Unmanaged.passUnretained(event)
+            }
             if kind == .keyDown {
                 let flags = event.flags
                 let chord = flags.contains([.maskControl, .maskAlternate]) && flags.intersection([.maskCommand, .maskShift]).isEmpty

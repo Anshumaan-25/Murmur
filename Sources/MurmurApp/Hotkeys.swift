@@ -19,6 +19,8 @@ final class Hotkeys {
     var pasteLast: (() -> Void)?
     var command: (() -> Void)?
     var hold: ((Bool) -> Void)?
+    var beginPreRoll: (() -> Void)?
+    var discardPreRoll: (() -> Void)?
     var holdInterrupted: (() -> Void)?
 
     private static let signature: OSType = 0x4D55524D
@@ -37,6 +39,7 @@ final class Hotkeys {
     private var holdEnabled = false
     private var holdGeneration: UInt64 = 0
     private var pendingHold: UUID?
+    private var pressedAt: Double = 0
     private var deliveredHoldDown = false
     private(set) var lastTriggerUptime = ProcessInfo.processInfo.systemUptime
 
@@ -272,7 +275,8 @@ final class Hotkeys {
 
     private func enqueueHoldEvent(_ kind: HoldEvent, event: CGEvent) {
         let generation = holdGeneration
-        let uptime = Double(event.timestamp) / 1_000_000_000
+        // Some virtual keyboards and synthesized events omit the HID timestamp.
+        let uptime = event.timestamp == 0 ? ProcessInfo.processInfo.systemUptime : Double(event.timestamp) / 1_000_000_000
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.suspended, self.holdGeneration == generation else { return }
             self.deliverHoldEvent(kind, uptime: uptime)
@@ -285,7 +289,11 @@ final class Hotkeys {
             // Wait briefly so a modifier used as part of a chord cannot start dictation.
             let candidate = UUID()
             pendingHold = candidate
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.holdDelay) { [weak self] in
+            pressedAt = uptime
+            lastTriggerUptime = uptime
+            beginPreRoll?()
+            let remaining = max(0, Self.holdDelay - (ProcessInfo.processInfo.systemUptime - uptime))
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { [weak self] in
                 guard let self, self.pendingHold == candidate, self.gesture.pressed else { return }
                 self.pendingHold = nil
                 self.deliveredHoldDown = true
@@ -293,11 +301,22 @@ final class Hotkeys {
                 self.hold?(true)
             }
         case .release, .interrupt:
+            if pendingHold != nil {
+                // Event timestamps survive a busy main run loop. A genuine hold may
+                // already have ended before its verification timer was dispatched.
+                if kind == .release && uptime - pressedAt >= Self.holdDelay {
+                    deliveredHoldDown = true
+                    lastTriggerUptime = pressedAt
+                    hold?(true)
+                } else {
+                    discardPreRoll?()
+                }
+            }
             pendingHold = nil
             guard deliveredHoldDown else { return }
             deliveredHoldDown = false
             lastTriggerUptime = uptime
-            if kind == .release { hold?(false) }
+            if kind == .release && uptime - pressedAt >= Self.holdDelay { hold?(false) }
             else { holdInterrupted?() }
         }
     }
@@ -305,6 +324,7 @@ final class Hotkeys {
     private func resetHold(notifyInterruption: Bool) {
         holdGeneration &+= 1
         _ = gesture.reset()
+        if pendingHold != nil { discardPreRoll?() }
         pendingHold = nil
         let interrupted = deliveredHoldDown
         deliveredHoldDown = false

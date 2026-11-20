@@ -34,7 +34,7 @@ func polishProtocolChecks() async {
         version,prompt_bytes,audio_bytes=struct.unpack('<III',raw[4:16])
         prompt=raw[16:16+prompt_bytes].decode()
         audio=raw[16+prompt_bytes:]
-        assert magic==b'KDSP' and version==1 and prompt=='FixtureCanaryName'
+        assert magic==b'KDSP' and version==1 and prompt_bytes==0 and prompt==''
         assert len(audio)==audio_bytes and audio.startswith(b'RIFF')
         assert 'FixtureCanaryName' not in ' '.join(sys.argv)
         assert 'FixtureCanaryName' not in str(dict(os.environ))
@@ -44,7 +44,7 @@ func polishProtocolChecks() async {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let provider = ExecutableSpeechProvider(executable: executable, model: executable, privateProtocol: true)
         let result = try await provider.transcribe(AudioTools.frames(Array(repeating: 0.01, count: 640)), language: "en-IN", vocabulary: ["FixtureCanaryName"])
-        expect(result.text == "Private vocabulary integration passed.", "provider/process/parser integration keeps hints off argv and environment")
+        expect(result.text == "Private vocabulary integration passed.", "bundled Whisper receives audio without vocabulary priming")
         try Data("#!/bin/sh\ncat >/dev/null\nprintf '[BLANK_AUDIO]\\n'\n".utf8).write(to: executable)
         do { _ = try await provider.transcribe(AudioTools.frames([0.001]), language: "en", vocabulary: []); expect(false, "bundled no-speech output rejected") }
         catch MurmurError.empty {} catch { expect(false, "no-speech has the empty-audio outcome") }

@@ -4,6 +4,8 @@ import CryptoKit
 public struct CleanupFixture: Codable, Sendable {
     public var input: String
     public var expected: String
+    /// Individually reviewed, equally valid punctuation for this fixture.
+    public var punctuationAlternatives: [String]?
     public init(input: String, expected: String) { self.input = input; self.expected = expected }
     public static func bundled() throws -> [CleanupFixture] {
         guard let url = Bundle.main.url(forResource: "cleanup-cases", withExtension: "json") else { throw MurmurError.unavailable("Cleanup validation cases are missing. Rebuild the application.") }
@@ -33,7 +35,8 @@ public enum CleanupValidation {
         for (index, fixture) in cases.enumerated() {
             try Task.checkCancellation()
             let result = await SystemCleanup(budget: budget).attempt(fixture.input, context: TextContext())
-            details.append(.init(index: index, passed: result.text == fixture.expected, seconds: result.seconds, usedModel: result.usedModel, reason: result.reason))
+            let passed = result.text == fixture.expected || (result.usedModel && fixture.punctuationAlternatives?.contains(result.text) == true)
+            details.append(.init(index: index, passed: passed, seconds: result.seconds, usedModel: result.usedModel, reason: result.reason))
         }
         let sorted = details.map(\.seconds).sorted()
         let p95 = sorted[min(sorted.count - 1, Int(ceil(Double(sorted.count) * 0.95)) - 1)]

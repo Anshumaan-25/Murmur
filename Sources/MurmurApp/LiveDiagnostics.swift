@@ -42,7 +42,7 @@ import MurmurCore
         let current = Destination.capture()
         var reason = resolved.reason(comparedTo: current, focusChanged: continuity.pid != original.pid || continuity.invalidated)
         if reason == .ready && (resolved.evidence.replacingSelection(with: "") == nil ||
-            current.evidence.replacingSelection(with: "") == nil || !current.hasWritableSelection) {
+            current.evidence.replacingSelection(with: "") == nil || !(current.hasWritableSelection || (continuity.available && current.supportsUnicodeInput))) {
             reason = .insertionUnsupported
         }
         publish(controller: controller, focus: ["original":original.diagnostic, "resolved":resolved.diagnostic, "current":current.diagnostic, "before":before, "after":Destination.focusDiagnostics(), "reason":reason.rawValue, "focus_tracking_available":continuity.available, "focus_unchanged":!continuity.invalidated, "posted_input":false])

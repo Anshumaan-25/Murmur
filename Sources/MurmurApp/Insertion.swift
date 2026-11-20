@@ -15,6 +15,11 @@ struct Destination {
     let protected: Bool
     let editable: Bool
     let role: String
+    var showsComposerPlaceholder = false
+    var caret: CaretContext? {
+        guard editable, !protected, let value, let selection else { return nil }
+        return CaretContext(text: showsComposerPlaceholder ? "" : value, selection: NSRange(location: selection.location, length: selection.length))
+    }
     private static let containers = ["", "AXApplication", "AXWindow", "AXGroup", "AXWebArea", "AXScrollArea", "AXUnknown"]
     static func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
         var result: CFTypeRef?; guard AXUIElementCopyAttributeValue(element, key as CFString, &result) == .success else { return nil }; return result
@@ -69,12 +74,18 @@ struct Destination {
             let ax = unsafeBitCast(ref, to: AXValue.self); var result = CFRange()
             if AXValueGetType(ax) == .cfRange && AXValueGetValue(ax, .cfRange, &result) { range = result }
         }
+        let value = secured || !acceptsText ? nil : element.flatMap { attribute($0, kAXValueAttribute) as? String }
+        // Codex exposes the empty composer's accessible label as AXValue with
+        // a trailing newline. Keep the raw value for all pre-paste focus checks.
+        let placeholder = app?.bundleIdentifier == "com.openai.codex" && role == kAXTextAreaRole
+            && range?.location == 0 && range?.length == 0 && value?.hasSuffix("\n") == true
+            && element.flatMap { attribute($0, kAXDescriptionAttribute) as? String }.map { !$0.isEmpty && value == $0 + "\n" } == true
         return Destination(pid: pid, bundle: app?.bundleIdentifier ?? "", element: element,
                            windowElement: focusedWindow ?? editorWindow,
-                           value: secured || !acceptsText ? nil : element.flatMap { attribute($0, kAXValueAttribute) as? String },
+                           value: value,
                            selection: range,
                            selectedText: secured || !acceptsText ? "" : element.flatMap { attribute($0, kAXSelectedTextAttribute) as? String } ?? "",
-                           protected: secured, editable: acceptsText, role: role)
+                           protected: secured, editable: acceptsText, role: role, showsComposerPlaceholder: placeholder)
     }
 
     private static func editableRole(_ element: AXUIElement, role: String? = nil) -> Bool {
@@ -146,6 +157,10 @@ struct Destination {
         return DeliveryPolicy.decide(original: evidence, current: current.evidence, sameElement: equal, sameWindow: sameWindow, trusted: AXIsProcessTrusted(), requireSelection: requireSelection, focusChanged: focusChanged)
     }
 
+    var supportsUnicodeInput: Bool {
+        editable && [kAXTextAreaRole, kAXTextFieldRole, kAXComboBoxRole].contains(role)
+            && CGPreflightPostEventAccess()
+    }
     var hasWritableSelection: Bool {
         element.map { Self.canSetSelectedText($0) || WebTextReplacement.isSupported(by: $0) } == true
     }
@@ -241,13 +256,11 @@ private enum WebTextReplacement {
 
 @MainActor final class TextInserter {
     enum Outcome: String { case inserted, available, unconfirmed }
-    private struct PasteBlocked: Error {}
-    private let clipboard = ClipboardDelivery()
     private(set) var lastReason = DeliveryReason.ready
     private(set) var lastAttempt: [String:Any] = [:]
 
     func insert(_ text: String, destination: Destination, requireSelection: Bool = false,
-                continuity: FocusContinuity? = nil, clipboardDelay: Double = 0.35) async throws -> Outcome {
+                continuity: FocusContinuity? = nil) async throws -> Outcome {
         try Task.checkCancellation()
         let current = Destination.capture()
         let changed = continuity.map { $0.pid != destination.pid || $0.invalidated } ?? false
@@ -267,20 +280,24 @@ private enum WebTextReplacement {
             lastReason = .textChanged
             return .available
         }
-        // Ordinary dictation uses the editor's native Paste command. Web
-        // composers can acknowledge an AX write and discard the actual edit.
-        if !requireSelection, expected != current.value, let continuity, continuity.available, CGPreflightPostEventAccess() {
-            do {
-                return try await paste(text, into: destination, element: element, expected: expected,
-                                       continuity: continuity, delay: clipboardDelay)
-            } catch is PasteboardSnapshot.Unrestorable {
-                // The native Paste command was never sent. Direct insertion
-                // can still work when the clipboard contains a protected item.
-                lastReason = .clipboardUnrestorable
+        // A single text event lets web composers perform their native edit and undo.
+        // Newlines and control keys must never turn into Return, Tab or shortcuts.
+        let controls = CharacterSet.controlCharacters.subtracting(CharacterSet(charactersIn: "\u{200D}\u{200C}")).union(.newlines)
+        let unicode = !requireSelection && current.supportsUnicodeInput && expected != current.value
+            && continuity?.available == true && !text.isEmpty
+            && !text.unicodeScalars.contains { controls.contains($0) }
+        let modifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift, .maskSecondaryFn]
+        var webRange: CFTypeRef?
+        if unicode {
+            let deadline = ContinuousClock.now + .seconds(1)
+            while !CGEventSource.flagsState(.combinedSessionState).intersection(modifiers).isEmpty {
+                guard ContinuousClock.now < deadline, continuity?.invalidated == false else {
+                    lastReason = .shortcutHeld
+                    return .available
+                }
+                try await Task.sleep(for: .milliseconds(20))
             }
-        }
-        let webRange: CFTypeRef?
-        if WebTextReplacement.isSupported(by: element) {
+        } else if WebTextReplacement.isSupported(by: element) {
             guard let length = current.selection?.length,
                   let range = WebTextReplacement.selection(in: element, selectedText: current.selectedText, length: length) else {
                 lastReason = .insertionUnsupported
@@ -292,7 +309,6 @@ private enum WebTextReplacement {
                 lastReason = .insertionUnsupported
                 return .available
             }
-            webRange = nil
         }
         // Marker discovery can require several AX round trips. Recheck the
         // original field and selection immediately before the single write.
@@ -312,19 +328,42 @@ private enum WebTextReplacement {
             throw MurmurError.protectedTarget
         }
 
-        // Send the replacement to the captured AX element, never to the app's current responder.
-        lastAttempt["method"] = webRange == nil ? "selected_text" : "web_text_operation"
-        let status = webRange.map { WebTextReplacement.replace(in: element, range: $0, with: text) }
-            ?? AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
-        lastAttempt["ax_status"] = status.rawValue
+        let status: AXError
+        if unicode {
+            guard continuity?.available == true,
+                  CGEventSource.flagsState(.combinedSessionState).intersection(modifiers).isEmpty else {
+                lastReason = .shortcutHeld
+                return .available
+            }
+            let source = CGEventSource(stateID: .privateState)
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: UInt16.max, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: UInt16.max, keyDown: false) else {
+                lastReason = .insertionUnsupported
+                return .available
+            }
+            down.flags = []
+            up.flags = []
+            let units = Array(text.utf16)
+            units.withUnsafeBufferPointer { down.keyboardSetUnicodeString(stringLength: $0.count, unicodeString: $0.baseAddress) }
+            up.keyboardSetUnicodeString(stringLength: 0, unicodeString: nil)
+            lastAttempt["method"] = "unicode_text"
+            down.postToPid(destination.pid)
+            up.postToPid(destination.pid)
+            status = .success
+        } else {
+            lastAttempt["method"] = webRange == nil ? "selected_text" : "web_text_operation"
+            status = webRange.map { WebTextReplacement.replace(in: element, range: $0, with: text) }
+                ?? AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
+            lastAttempt["ax_status"] = status.rawValue
+        }
         switch status {
         case .success:
-            let deadline = ContinuousClock.now + .milliseconds(400)
+            let deadline = ContinuousClock.now + .seconds(1)
             while NSWorkspace.shared.frontmostApplication?.processIdentifier == destination.pid,
                   continuity?.invalidated != true, !IsSecureEventInputEnabled() {
                 try Task.checkCancellation()
                 if let value = Destination.attribute(element, kAXValueAttribute) as? String,
-                   value.utf16.elementsEqual(expected.utf16) {
+                   (value.utf16.elementsEqual(expected.utf16) || (destination.showsComposerPlaceholder && value == text && value != destination.value)) {
                     lastReason = .inserted
                     return .inserted
                 }
@@ -345,71 +384,4 @@ private enum WebTextReplacement {
         return .unconfirmed
     }
 
-    func finish() { clipboard.finish() }
-
-    private func paste(_ text: String, into destination: Destination, element: AXUIElement,
-                       expected: String, continuity: FocusContinuity, delay: Double) async throws -> Outcome {
-        let source = CGEventSource(stateID: .privateState)
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false) else {
-            lastReason = .insertionUnsupported
-            return .available
-        }
-        let deadline = ContinuousClock.now + .seconds(1)
-        let modifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift, .maskSecondaryFn]
-        func modifiersReleased() -> Bool {
-            CGEventSource.flagsState(.combinedSessionState).intersection(modifiers).isEmpty
-        }
-        func validate() throws {
-            let current = Destination.capture()
-            let changed = !continuity.available || continuity.invalidated || continuity.pid != destination.pid
-            lastAttempt["current"] = current.diagnostic
-            lastAttempt["focus_unchanged"] = !changed
-            lastReason = destination.reason(comparedTo: current, focusChanged: changed)
-            if lastReason == .protectedField { throw MurmurError.protectedTarget }
-            guard lastReason == .ready else { throw PasteBlocked() }
-            guard current.evidence.replacingSelection(with: text)?.utf16.elementsEqual(expected.utf16) == true else {
-                lastReason = .textChanged
-                throw PasteBlocked()
-            }
-            guard modifiersReleased() else {
-                lastReason = .shortcutHeld
-                throw PasteBlocked()
-            }
-        }
-        while !modifiersReleased() {
-            guard ContinuousClock.now < deadline && !continuity.invalidated else {
-                lastReason = continuity.invalidated ? .targetChanged : .shortcutHeld
-                return .available
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        do {
-            try validate()
-            down.flags = .maskCommand
-            up.flags = []
-            let inserted = try await clipboard.deliver(text, delay: delay, validate: validate, verifyPaste: {
-                guard !IsSecureEventInputEnabled() else { return false }
-                return (Destination.attribute(element, kAXValueAttribute) as? String) == expected
-            }, keepTextIfUnconfirmed: true) {
-                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == destination.pid,
-                      continuity.available, !continuity.invalidated, modifiersReleased(),
-                      !IsSecureEventInputEnabled() else {
-                    lastReason = .targetChanged
-                    throw PasteBlocked()
-                }
-                lastAttempt["method"] = "native_paste"
-                down.postToPid(destination.pid)
-                up.postToPid(destination.pid)
-            }
-            try Task.checkCancellation()
-            lastReason = inserted ? .inserted : .insertionUnconfirmed
-            return inserted ? .inserted : .unconfirmed
-        } catch is PasteBlocked {
-            return .available
-        } catch is ClipboardDelivery.Changed {
-            lastReason = .clipboardChanged
-            return .available
-        }
-    }
 }

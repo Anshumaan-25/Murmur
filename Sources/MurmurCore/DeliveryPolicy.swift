@@ -15,12 +15,45 @@ public enum DeliveryReason: String, Codable, Sendable {
         case .clipboardChanged: return "Text ready — the clipboard changed"
         case .clipboardUnrestorable: return "Clipboard preserved · use Copy Previous Text"
         case .inserted: return "Dictation inserted"
-        case .insertionUnsupported: return "This field cannot accept direct insertion · use Copy Previous Text"
-        case .insertionUnconfirmed: return "Check the field before pasting again · insertion could not be confirmed"
+        case .insertionUnsupported: return "This field cannot accept direct insertion. Use Copy Text."
+        case .insertionUnconfirmed: return "Check the field first. Keydown couldn’t verify the insertion."
         case .protectedField: return "Protected fields cannot receive dictation"
         }
     }
 }
+public struct CaretContext: Sendable {
+    public let prefix: String
+    public let suffix: String
+    public let selected: String
+
+    public init?(text: String, selection: NSRange) {
+        guard selection.location >= 0, selection.length >= 0,
+              selection.location <= text.utf16.count, selection.length <= text.utf16.count - selection.location,
+              let range = Range(selection, in: text) else { return nil }
+        prefix = String(text[..<range.lowerBound].suffix(256))
+        suffix = String(text[range.upperBound...].prefix(256))
+        selected = String(text[range].prefix(256))
+    }
+
+    var startsSentence: Bool {
+        let left = prefix.reversed().drop(while: { $0 == " " || $0 == "\t" || "\"”’)]".contains($0) })
+        return left.first.map { $0.isNewline || ".!?".contains($0) } ?? true
+    }
+    var continuesOnRight: Bool {
+        guard let next = suffix.first(where: { $0 != " " && $0 != "\t" }) else { return false }
+        return !next.isNewline
+    }
+
+    func join(_ text: String) -> String {
+        guard let first = text.first, let last = text.last else { return text }
+        let spaceBefore = prefix.last.map { !$0.isWhitespace && !"([{“‘/".contains($0) } == true
+            && !first.isWhitespace && !",.!?:;)]}”’".contains(first)
+        let spaceAfter = suffix.first.map { !$0.isWhitespace && !",.!?:;)]}”’".contains($0) } == true
+            && !last.isWhitespace && !"([{“‘/".contains(last)
+        return (spaceBefore ? " " : "") + text + (spaceAfter ? " " : "")
+    }
+}
+
 public struct FocusEvidence: Sendable {
     public var pid: Int32
     public var editable: Bool
