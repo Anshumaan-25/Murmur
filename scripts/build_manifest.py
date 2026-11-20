@@ -1,6 +1,7 @@
 """Identify the exact local sources and staged runtime without reading private files."""
 import hashlib
 import json
+import plistlib
 from pathlib import Path
 import subprocess
 import sys
@@ -32,7 +33,8 @@ def manifest(root, resources):
             for block in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(block)
         assets[name] = digest.hexdigest()
-    return {"version": "0.2.11", "revision": revision.stdout.strip() if revision.returncode == 0 else "unknown",
+    version = plistlib.loads((resources.parent / "Info.plist").read_bytes())["CFBundleShortVersionString"]
+    return {"version": version, "revision": revision.stdout.strip() if revision.returncode == 0 else "unknown",
             "source_sha256": source_identity(root), "rules": "cleanup-11", "speech_protocol": 1 if "speech-protocol.json" in assets else 0,
             "assets": assets}
 
@@ -40,4 +42,6 @@ def manifest(root, resources):
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1]
     resources = Path(sys.argv[1])
-    (resources / "build-info.json").write_text(json.dumps(manifest(root, resources), sort_keys=True, indent=2) + "\n")
+    output = resources / "build-info.json"
+    output.write_text(json.dumps(manifest(root, resources), sort_keys=True, indent=2) + "\n")
+    output.chmod(0o644)

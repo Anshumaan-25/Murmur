@@ -61,6 +61,8 @@ def build(kind, work, *, prepare=False):
         raise SystemExit("Install trusted CMake or set KEYDOWN_CMAKE to its absolute path.")
     output = work / f"{name}-build"
     flags = ["-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=OFF", "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"]
+    if os.environ.get("KEYDOWN_DISTRIBUTION") == "1":
+        flags += ["-DGGML_NATIVE=OFF", "-DCMAKE_OSX_ARCHITECTURES=arm64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0"]
     if kind == "speech":
         patch_speech(source, ROOT)
         flags += ["-DWHISPER_BUILD_TESTS=OFF"]
@@ -98,6 +100,7 @@ def stage(resources, work):
         shutil.copy2(binaries / "whisper-cli", resources / "speech-decode")
         (resources / "speech-protocol.json").write_text(json.dumps({"version": 1}))
         shutil.copyfile(license_file, resources / "SpeechEngine-LICENSE.txt")
+        shutil.copyfile(ROOT / "licenses/Whisper-Model-LICENSE.txt", resources / "SpeechModel-LICENSE.txt")
 
     editing = models / EDITING["filename"]
     if editing.is_file() and (ROOT / ".local/vendor/text-engine").is_dir():

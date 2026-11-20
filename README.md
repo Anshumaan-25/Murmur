@@ -24,6 +24,10 @@ From another checkout, run `python3 scripts/download_models.py --confirm`. Set `
 
 A checkout without downloaded resources still compiles and uses the system speech adapter. That adapter requires language assets which macOS reports as ready; it never initiates an asset download. On this machine, locale listings did not match asset readiness, so the bundled decoder is the tested choice.
 
+## Package a local beta for download
+
+On Apple silicon, prepare both pinned engines, the editing model and the Q5 speech model, then run `make dmg` with the project signing identity. Use `scripts/quantize_speech.py` to derive the compact model after preparing the speech quantizer. The target produces a read-only drag-to-Applications disk image and a SHA-256 checksum under `artifacts/releases/`. It builds both helpers for Apple silicon without host-specific CPU tuning and verifies the mounted app signature. This local beta targets macOS 26 or later and has not been notarized by Apple.
+
 ## Daily use
 
 Keydown requests a pause of the current macOS media session when hold or toggle dictation is accepted and leaves playback paused afterward. Settings can disable this. Multiple players and apps that ignore media controls may still need manual pausing; see [media pause behavior](docs/MEDIA_PAUSE.md).

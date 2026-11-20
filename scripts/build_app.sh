@@ -23,8 +23,8 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Keydown</string>
 <key>CFBundleDisplayName</key><string>Keydown</string>
 <key>CFBundleIconFile</key><string>Keydown.icns</string>
-<key>CFBundleShortVersionString</key><string>0.2.11</string>
-<key>CFBundleVersion</key><string>13</string>
+<key>CFBundleShortVersionString</key><string>0.2.12</string>
+<key>CFBundleVersion</key><string>14</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSUIElement</key><true/>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
@@ -43,5 +43,6 @@ else
   codesign --force --sign - "$app_path"
 fi
 codesign --verify --deep --strict "$app_path"
-python3 scripts/replace_bundle.py "$app_path" "$PWD/.build/Keydown.app"
-printf 'Built %s\n' "$PWD/.build/Keydown.app"
+output="${KEYDOWN_APP_OUTPUT:-$PWD/.build/Keydown.app}"
+python3 scripts/replace_bundle.py "$app_path" "$output"
+printf 'Built %s\n' "$output"

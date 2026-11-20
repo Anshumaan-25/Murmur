@@ -1,4 +1,4 @@
-.PHONY: test app run install check demo bench
+.PHONY: test app run install check demo bench dmg
 check:
 	python3 scripts/cleanroom_check.py
 test:
@@ -17,3 +17,5 @@ demo:
 	bash scripts/demo.sh
 bench:
 	python3 scripts/benchmark.py
+dmg:
+	bash scripts/build_dmg.sh
